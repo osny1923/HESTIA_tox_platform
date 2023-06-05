@@ -1,0 +1,839 @@
+---
+title: "HESTIA_Data_visualizations"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Dir & Libraries
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "C:\\Users\\Oskar\\Box\\PhD\\Collaborations\\Pesticide inclusion in LCA\\Results folder\\HESTIA_HC20", verbose = TRUE)
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, verbose = TRUE)
+# These libraries are used for analysis
+    library(rmarkdown)
+    library(xlsx)
+    library(tidyverse)
+    library(readr)
+   
+```
+
+# Loading HESTIA Dataset
+
+Loading and running the HESTIA_HC20_DB.Rmd-code in the background to have a cleaner workspace
+```{r}
+source(knitr::purl("C:\\Users\\Oskar\\Box\\PhD\\Collaborations\\Pesticide inclusion in LCA\\R-code and data\\Markdown_Pesticides\\HESTIA_HC20\\HESTIA_HC20_DB.Rmd"))
+```
+
+
+# Step 9. Loading QSAR Estimations Dataset
+
+Loading and running the Envirotox_DB.Rmd-code in the background to have a cleaner workspace
+```{r}
+source(knitr::purl("C:\\Users\\Oskar\\Box\\PhD\\Collaborations\\Pesticide inclusion in LCA\\R-code and data\\Markdown_Pesticides\\HESTIA_HC20\\QSAR_Tox_DB.Rmd"))
+```
+
+
+# Data visualization
+
+## 10.1 Comparisons VEGA <-> Experimental (ECOTOX)
+```{r}
+# Comparing Experimental to Estimated data (ECOTOX ==/== VEGA_QSAR)
+
+# defining a dataset with merged VEGA estimations and empirical data
+plot_dataset <- left_join(x = HESTIA_envirotox_cfs,
+                          y = VEGA_CF %>% 
+                              select(-c(ID, SMILES, SMILES_VEGA)) %>% 
+                              filter(!grepl("LOW LOW LOW", QSAR_Quality_fish_crust_algae)),
+                          by = "CAS.Number") %>% 
+                  filter(!is.na(CRF_VEGA),
+                         !is.na(CRF_EC20EC10eq)
+                         ) %>% 
+                  mutate(ratio_exp_est = CRF_EC20EC10eq/CRF_VEGA)
+
+plot_dataset_HQ_Data <- left_join(x = HESTIA_envirotox_cfs,
+                          y = VEGA_CF %>% 
+                              select(-c(ID, SMILES, SMILES_VEGA)) %>% 
+                              filter(!grepl("LOW", QSAR_Quality_fish_crust_algae)),
+                          by = "CAS.Number") %>% 
+                  filter(!is.na(CRF_VEGA),
+                         !is.na(CRF_EC20EC10eq),
+                         !CRF_EC20EC10eq %in% c("Single species, extrapolated Sd", "SSD < 5 species") ) %>% 
+                  mutate(ratio_exp_est = CRF_EC20EC10eq/CRF_VEGA)
+####
+#Building a linear model for the VEGA-empirical comparisons
+# 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+  # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+cor.test(plot_dataset$CRF_EC20EC10eq, plot_dataset$CRF_VEGA)
+  # ok, so the coefficient is 0.04492174. very close to 0.
+# 2. Building a model on training data  
+# This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+model <- lm(CRF_VEGA ~ CRF_EC20EC10eq, data = plot_dataset)
+# 3. Assessing the model’s fit
+# RSE can be found in the summary of a model.
+summary(model)
+# 4. Analyzing model results.
+# This finds the R Squared value of a linear regression model named model.
+summary(model)$r.squared
+####
+#For the HQ_Dataset
+####
+#Building a linear model for the VEGA-empirical comparisons
+# 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+  # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+cor.test(plot_dataset_HQ_Data$CRF_EC20EC10eq, plot_dataset_HQ_Data$CRF_VEGA)
+  # ok, so the coefficient is 0.04492174. very close to 0.
+# 2. Building a model on training data  
+# This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+model_2 <- lm(CRF_VEGA ~ CRF_EC20EC10eq, data = plot_dataset_HQ_Data)
+# 3. Assessing the model’s fit
+# RSE can be found in the summary of a model.
+summary(model_2)
+# 4. Analyzing model results.
+# This finds the R Squared value of a linear regression model named model.
+summary(model_2)$r.squared
+####
+
+# Comparing CRF ratios against each other. from experimental vs. estimated data.
+plot_dataset %>% 
+      arrange(desc(ratio_exp_est)) %>% 
+    ggplot(aes(x = reorder(CAS.Number, -ratio_exp_est) , y = ratio_exp_est)) +
+    geom_point(size = 1) +
+    geom_line(aes(y = 1), color = "red")+
+    geom_hline(yintercept = c(1E2, 1, 1E-2), linetype="dashed", color = "red") + # Better visualization of how much data is within 4 orders of magnitude variation around ratio = 1.
+    scale_y_log10()
+# Comparing data points of CRF_all & CRF_vega
+ QSAR_plot <- plot_dataset %>% 
+    ggplot(aes(x = CRF_EC20EC10eq, y = CRF_VEGA)) +
+    geom_point(size = 1) +
+    geom_smooth(method = "lm", color ="red", size = 1) +
+    geom_text(aes(x = 500, y = 10), label = print(paste0("R^2 =", summary(model)$r.squared))) +
+    geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_y_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    scale_x_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    theme_light(base_size = 8) +
+    ylab("CRF VEGA QSAR") +
+    xlab("CRF empirical data") +
+    ggtitle("Empirical-QSAR impact indicator comparison of substances\n 
+            Blue line = 1:1 comparison")
+ 
+    ggsave("Graphic_output\\QSAR_comparison.png", QSAR_plot, dpi = 300)
+
+ # Comparing data points of CRF_all & CRF_vega for HQ_data
+QSAR_plot_HQ <- plot_dataset_HQ_Data %>% 
+    ggplot(aes(x = CRF_EC20EC10eq, y = CRF_VEGA)) +
+    geom_point(size = 1) +
+    geom_smooth(method = "lm", color ="red", size = 1) +
+    geom_text(aes(x = 500, y = 10), label = print(paste0("R^2 =", summary(model_2)$r.squared))) +
+    geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_y_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    scale_x_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    theme_light(base_size = 8) +
+    ylab("CRF VEGA QSAR") +
+    xlab("CRF empirical data") +
+    ggtitle("Empirical-QSAR impact indicator comparison of substances\n 
+            Blue line = 1:1 comparison")
+  
+    ggsave("Graphic_output\\QSAR_comparison_HQ.png", QSAR_plot_HQ, dpi = 300)
+
+
+  
+```
+
+
+### Comparisons removed low quality 
+VEGA_GOOD <-> Experimental (ECOTOX)
+```{r}
+# Comparing Experimental to Estimated data (ECOTOX ==/== VEGA_QSAR)
+
+# defining a dataset with merged VEGA estimations and empirical data
+plot_dataset_good <- merge(x = HC20_dataset,
+                          y = VEGA_GOOD %>% 
+                              select(-c(ID, SMILES, SMILES_VEGA)),
+                          by = "CAS.Number") %>% 
+                  filter(!is.na(CRF_VEGA),
+                         !is.na(CRF_best)) %>% 
+                  mutate(ratio_exp_est = CRF_best/CRF_VEGA)
+
+#Building a linear model for the VEGA-empirical comparisons
+  # 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+    # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+  cor.test(plot_dataset_good$CRF_all, plot_dataset_good$CRF_VEGA)
+    # ok, so the coefficient is -0.03341369. very close to 0 here as well, but on the other side of 0.
+  # 2. Building a model on training data  
+  # This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+  model_good <- lm(CRF_VEGA ~ CRF_all, data = plot_dataset_good)
+  
+  # 3. Assessing the model’s fit
+  # RSE can be found in the summary of a model.
+  summary(model_good)
+  # 4. Analyzing model results.
+  # This finds the R Squared value of a linear regression model named model.
+  summary(model_good)$r.squared
+
+# Comparing CRF ratios against each other. from experimental vs. estimated data.
+plot_dataset_good %>% 
+      arrange(desc(ratio_exp_est)) %>% 
+    ggplot(aes(x = reorder(CAS.Number, -ratio_exp_est) , y = ratio_exp_est)) +
+    geom_point(size = 1) +
+    geom_line(aes(y = 1), color = "red")+
+    geom_hline(yintercept = c(1E2, 1, 1E-2), linetype="dashed", color = "red") + # Better visualization of how much data is within 4 orders of magnitude variation around ratio = 1.
+    scale_y_log10()
+# Comparing data points of CRF_all & CRF_vega
+  plot_dataset_good %>% 
+    ggplot(aes(x = CRF_all, y = CRF_VEGA)) +
+    geom_point(size = 1) +
+    geom_text(aes(x = 250, y = 10), label = print(paste0("R^2 =", summary(model_good)$r.squared))) +
+    geom_smooth(method = "lm", color ="red", size = 1) +
+    geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_y_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    scale_x_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    theme_light(base_size = 8) +
+    ylab("CRF VEGA QSAR") +
+    xlab("CRF empirical data") +
+    ggtitle("Empirical-QSAR impact indicator comparison of substances \n 
+            low quality QSAR data removed. Blue line = 1:1 comparison")
+
+```
+
+## 10.2 VEGA CoV to HESTIA CoV
+So, it's clear that the QSAR estimations are performing poorly in constructing CRFs when compared to CRFs based on empirical data.
+But, what about the uncertainty of the data? I assume that there are greater uncertainties in the Empirical dataset than for the QSARs.
+However, is it reasonable to say that a poorly estimated CRF is ok, since it has low uncertainty? the POOR factor is also uncertainty in what it is representing.
+Whatever. Let's check it out. 
+```{r}
+plot_dataset %>% 
+  ggplot(aes(x = CoV_sp_mean_EC10eq, y = CoV_VEGA_Mean)) +
+    geom_point(aes(color = n_Taxonomy.Group_all), size = 1, ) +
+    geom_smooth(method = "lm", color ="red", size = 1) +
+    #geom_text(aes(x = 500, y = 10), label = print(paste0("R^2 =", summary(model)$r.squared))) +
+    geom_abline(intercept = 0, slope = 1, color = "blue") +
+    #scale_y_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    #scale_x_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+  scale_colour_gradientn(colours = rainbow(10))+
+    theme_light(base_size = 8) +
+    ylab("VEGA QSAR CoV of input effect conc.") +
+    xlab("CoV of empirical data for each species") +
+    ggtitle("Empirical-QSAR comparison of CoV effect data making up the SSD curve\n 
+            Blue line = 1:1 comparison")
+  
+plot_dataset_good %>% 
+  ggplot(aes(x = CoV_sp_mean_EC10eq, y = CoV_VEGA_Mean)) +
+    geom_point(aes(color = n_Taxonomy.Group_all), size = 1) +
+    geom_smooth(method = "lm", color ="red", size = 1) +
+    #geom_text(aes(x = 500, y = 10), label = print(paste0("R^2 =", summary(model)$r.squared))) +
+    geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_fill_gradient(low = "yellow", high = "red", na.value = NA)+
+    #scale_y_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    #scale_x_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    scale_colour_gradientn(colours = rainbow(10))+
+    theme_light(base_size = 8) +
+    ylab("VEGA QSAR CoV of input effect conc.") +
+    xlab("CoV of empirical data for each species") +
+    ggtitle("Empirical-QSAR comparison of CoV effect data making up the SSD curve\n 
+            low quality estimations removed. Blue line = 1:1 comparison")
+  
+```
+
+
+#Empirical tox visualizations
+
+## 10.3 Q_dat_averages object
+To be able to perform averages across all data points, a new data frame to pull averages across ALL Chemicals directly
+Q_dat - averages per chemicals
+
+```{r}
+Q_dat_averages <- HESTIA_BASE_EnviroTox_FILL %>%
+  mutate(
+    log_ec10eq = as.numeric(log10(EC10eq)),
+    #log_ec10eq_acute = as.numeric(log10(EC10eq_Acute)),
+    log_ec10eq_chronic = as.numeric(log10(EC10eq_Chronic)),
+    ) %>% 
+  group_by(CAS.Number) %>% 
+    summarise(
+      meanEC10eq = mean(EC10eq, na.rm = TRUE),
+      meanlog_EC10eq = mean(log_ec10eq, na.rm = TRUE),
+      medianEC10eq = median(EC10eq, na.rm = TRUE),
+      meanEC10eq_chronic = mean(EC10eq_Chronic, na.rm = TRUE),
+      mean_log_EC10eq_chronic = mean(log_ec10eq_chronic, na.rm = TRUE),
+      sd_EC10eq = sd(EC10eq, na.rm = TRUE),
+      sd_EC10eq_chronic = sd(EC10eq_Chronic, na.rm = TRUE),
+      sd_logEC10eq = sd(log_ec10eq, na.rm = TRUE),
+      sd_logEC10eq_chronic = sd(log_ec10eq_chronic, na.rm = TRUE),
+      CoV_ec10eq = goeveg::cv(EC10eq, na.rm = TRUE),
+      CoV_ec10eq_chronic = goeveg::cv(EC10eq_Chronic, na.rm = TRUE),
+      CoV_logec10eq = sd_logEC10eq/meanlog_EC10eq,
+      CoV_logec10eq_chronic = sd_logEC10eq_chronic/mean_log_EC10eq_chronic,
+      n = n(),
+      n_Species = n_distinct(Species[!is.na(EC10eq)]),
+      n_Taxonomy.Group_all = n_distinct(Taxonomy.Group[!is.na(EC10eq)]),
+      n_Taxonomy.Group_chronic = n_distinct(Taxonomy.Group[!is.na(meanEC10eq_chronic)]),
+      ) #%>% 
+      # left_join(., # Adding the mean and median CoV per species (for each substance)
+      #           Q_dat %>%
+      #             mutate(Taxonomy.Group = as.integer(Taxonomy.Group)) %>% 
+      #             group_by(CAS.Number, Taxonomy.Group, Species) %>% 
+      #               summarise(sp_CoV = goeveg::cv(EC10eq, na.rm = TRUE),
+      #                         n_sp = n(),
+      #                         EC10eq_max = max(EC10eq),
+      #                         EC10eq_min = min(EC10eq)
+      #                         ) %>% 
+      #               ungroup() %>%
+      #               mutate(n_sp = case_when(n_sp != 1 ~ Taxonomy.Group,
+      #                                    TRUE ~ n_sp),
+      #                      spread_EC10eq = EC10eq_min - EC10eq_max) %>% 
+      #             group_by(CAS.Number) %>% 
+      #               summarise(median_sp_CoV = median(na.omit(sp_CoV)),
+      #                         n_sp_median = sum(!is.na(sp_CoV)),
+      #                         mean_sp_CoV = mean(na.omit(sp_CoV)),
+      #                         n_Taxonomy.Group = n_distinct(Taxonomy.Group[!is.na(n_sp)])
+      #                         ) %>% 
+      #               ungroup(),
+      #             by = "CAS.Number")
+
+```
+
+## Data inspection (Extreme outliers)
+```{r}
+# Overview of the most extreme LOW EC10eq means for inspection.
+ggplot(Q_dat_averages %>% 
+         slice_min(meanEC10eq_chronic, n = 60) %>% 
+         arrange(meanEC10eq_chronic), 
+         aes(x = reorder(CAS.Number, meanEC10eq_chronic), y = meanEC10eq_chronic, color = n_Taxonomy.Group_all)) +
+  #geom_boxplot(aes()) +
+  geom_point(aes()) +
+  scale_y_log10() +
+  #ylim(-1, 4)+
+  #coord_fixed(ratio = 2.2)+
+  coord_flip()+
+  theme(axis.text.y = element_text(size = 10))
+
+# Overview of the most extreme HIGH EC10eq means for inspection.
+ggplot(Q_dat_averages %>% 
+         slice_max(meanEC10eq_chronic, n = 60) %>% 
+         arrange(meanEC10eq_chronic), 
+         aes(x = reorder(CAS.Number, meanEC10eq_chronic), y = meanEC10eq_chronic, color = n_Taxonomy.Group_all)) +
+  #geom_boxplot(aes()) +
+  geom_point(aes()) +
+  scale_y_log10() +
+  #ylim(-1, 4)+
+  #coord_fixed(ratio = 2.2)+
+  coord_flip()+
+  theme(axis.text.y = element_text(size = 10))
+
+# HESTIA_BASE_EnviroTox_FILL %>%
+#   group_by(CAS.Number, Taxonomy.Group, Species) %>% 
+#   summarise(
+#     sp_CoV = goeveg::cv(EC10eq, na.rm = TRUE),
+#     n_sp = n()
+#     ) %>% 
+#   mutate(
+#     n_sp = case_when(n_sp != 1 ~ Taxonomy.Group, TRUE ~ n_sp)
+#     ) %>% 
+#   ungroup() %>%
+#   group_by(CAS.Number) %>% 
+#   summarise(
+#     median_sp_CoV = median(sp_CoV, na.rm = TRUE),
+#     n_sp_median = sum(!is.na(sp_CoV)),
+#     mean_sp_CoV = mean(sp_CoV, na.rm = TRUE),
+#     n_Taxonomy.Group = n_distinct(Taxonomy.Group[!is.na(n_sp)])
+#     ) %>% 
+#   ungroup() 
+# 
+
+```
+
+## Looking at the EC10eq data range of distribution (WORKING)
+To motivate applying the arithmetic mean to EC10eq data, each mean should be based on data from a broad range to subsequently work with more linear data.
+
+```{r}
+# Getting an idea of the distribution of data for each substance.
+# 1. Regardless of species
+EC10eq_range <- HESTIA_BASE_EnviroTox_FILL %>% 
+    filter(CAS.Number %in% HESTIA_HC20$CAS.Number) %>% 
+    group_by(CAS.Number) %>% 
+    summarise(sp_CoV = goeveg::cv(EC10eq, na.rm = TRUE),
+                                      n_sp = n(),
+                                      EC10eq_max = max(EC10eq, na.rm = T),
+                                      EC10eq_min = min(EC10eq, na.rm = T)
+                                      ) %>% 
+                            mutate(range_EC10eq = EC10eq_max - EC10eq_min) %>% 
+                            ungroup()
+
+# EC10eq_range %>% 
+#   arrange(desc(range_EC10eq)) #%>% 
+#     ggplot(aes(x = CAS.Number, y = range_EC10eq)) +
+#     geom_point()
+
+
+```
+
+
+```{r}
+# HESTIA_envirotox_EC10eq_first_avg %>%
+#     filter(EC10eq_range != "0") %>% 
+#     ggplot(aes(x = reorder(CAS.Number, -EC10eq_range), y = EC10eq_range, color = Taxonomy.Group)) +
+#     geom_point(aes()) +
+#     scale_y_log10()
+# 
+# HESTIA_envirotox_EC10eq_second_avg %>%
+#       filter(median_range_all_EC10eq != "0") %>% 
+#     ggplot(aes(x = reorder(CAS.Number, -median_range_all_EC10eq), y = median_range_all_EC10eq)) +
+#     geom_point(aes()) +
+#     scale_y_log10()
+```
+
+
+## Visualizing Toxicity
+### Top and bottom 50 toxic substances
+```{r}
+# top (most toxic) 50 EC20EC10eq-values:
+max_HC20 <- HESTIA_HC20 %>% 
+    slice_max(HC20, n = 50) %>% 
+    arrange(desc(HC20)) %>% 
+    ungroup() %>% 
+    select(CAS.Number, HC20) %>% 
+    mutate(Group = "max", 
+          Order_col = seq(1,50)) %>% 
+    left_join(x = ., 
+              y = Q_dat_averages %>% 
+                  select(CAS.Number, CoV_ec10eq) %>% 
+                  mutate(CoV_ec10eq = round(CoV_ec10eq, 3)),
+              by = "CAS.Number")
+
+# Bottom (least toxic) 50 EC20EC10eq-values:
+min_HC20 <- HESTIA_HC20 %>% 
+    slice_min(HC20, n = 50) %>% 
+    arrange(desc(HC20)) %>% 
+    ungroup() %>% 
+    select(CAS.Number, HC20) %>% 
+    mutate(Group = "min", 
+           Order_col = seq(1,50)) %>% 
+  left_join(
+    x = ., 
+    y = Q_dat_averages %>% 
+      select(CAS.Number, CoV_ec10eq)%>% 
+      mutate(CoV_ec10eq = round(CoV_ec10eq, 3)),
+    by = "CAS.Number")
+
+# Merge the two extremes if needed to be plotted in same plot
+min_max_plot <- rbind(min_HC20, max_HC20)
+
+p_max <- ggplot(
+  HESTIA_BASE_EnviroTox_FILL %>%
+    filter(CAS.Number %in% max_HC20$CAS.Number) %>% # <-  can wiggle here to present both high and low data, only low data or only high data
+    mutate(Group = case_when(
+      CAS.Number %in% min_HC20$CAS.Number ~"min",
+      CAS.Number %in% max_HC20$CAS.Number ~"max")) %>% 
+    left_join(x = ., 
+      y = max_HC20 %>% 
+        select(Order_col, CAS.Number),
+      by = "CAS.Number"), 
+    aes(x = reorder(CAS.Number, -Order_col), y = EC10eq, fill = Group)) 
+        
+p_max +
+  geom_boxplot(aes()) +
+  geom_text(data = max_HC20, aes(x = CAS.Number, y = Inf, label = CoV_ec10eq), hjust = -0.3, size = 2.5, color = "black") +
+  scale_y_log10() +
+  scale_x_discrete(name = "CAS number")+
+  labs(color ="Tox-Group", position = "top")+
+  #ylim(-10, 6.5)+
+  ylab("EC10eq mg L-1") +
+  coord_fixed(ratio = 2)+
+  coord_flip(clip = "off") +
+  ggtitle("50 Highest HC20 (most toxic) substances in falling order") +
+  theme_light() +
+  theme(legend.position="none", plot.margin = margin(0.1, 1, 0.1, 0.1, "cm")) 
+
+  ggsave("Graphic_output\\log10EC10eq_plot.png", plot = last_plot(), units = "mm", dpi = 300)
+
+
+p_min <- ggplot(
+  HESTIA_BASE_EnviroTox_FILL %>%
+    filter(CAS.Number %in% min_HC20$CAS.Number) %>% # <-  can wiggle here to present both high and low data, only low data or only high data
+    mutate(Group = case_when(
+      CAS.Number %in% min_HC20$CAS.Number ~"min",
+      CAS.Number %in% max_HC20$CAS.Number ~"max")) %>% 
+    left_join(
+      x = ., 
+      y = min_HC20 %>% 
+        select(Order_col, CAS.Number),
+      by = "CAS.Number"), 
+    aes(x = reorder(CAS.Number, -Order_col), y = EC10eq, fill = Group))
+
+p_min +
+  geom_boxplot(aes()) +
+  geom_text(data = min_HC20, aes(x = CAS.Number, y = Inf, label = CoV_ec10eq), hjust = -0.3, size = 2.5, color = "black") +
+  scale_y_log10() +
+  scale_x_discrete(name = "CAS number")+
+  labs(color ="Tox-Group", position = "top")+
+  #ylim(-10, 6.5)+
+  ylab("EC10eq mg L-1") +
+  coord_fixed(ratio = 2)+
+  coord_flip(clip = "off") +
+  ggtitle("50 lowest CRF (least toxic) substances in falling order") +
+  theme_light() +
+  theme(legend.position="top", plot.margin = margin(0.1, 1, 0.1, 0.1, "cm"))
+
+# median CoV values for the most and least toxic substances:
+median(max_HC20$CoV_ec10eq, na.rm= TRUE)
+median(min_HC20$CoV_ec10eq, na.rm= TRUE)
+
+
+
+```
+
+Plotting CoV for all substances in falling magnitude (WORKS)
+There are some interesting patterns where more taxonomy groups means higher CoV. Strange...
+
+```{r}
+# Plotting ALL data.
+# Really cool shape of the plot, along with a clear view of how n_taxonomy influences the uncertainty
+CoV_overview_all_data <- ggplot(data = Q_dat_averages %>% 
+         filter(n >1), 
+       aes(x = reorder(CAS.Number, -CoV_ec10eq), y = CoV_ec10eq)) +
+  geom_point(aes(color = as.factor(n_Taxonomy.Group_all))) +
+  scale_y_continuous(breaks = c(seq(1,40, by= 1)))+
+  scale_color_brewer(palette="Spectral") +
+  ylab("CoV based on all EC10eq independent of taxa") +
+  xlab("CAS.Number") +
+  ggtitle(paste0("Printing all data",
+                 ", ", 
+                 nrow(Q_dat_averages %>% 
+                        filter(n >1)), 
+                 " ", 
+                 "data points in here")) +
+  theme(legend.position="top")
+CoV_overview_all_data
+#ggsave("Graphic_output\\CoV_overview_all_data.png", CoV_overview_all_data, dpi = 300)
+
+# Cutting of n_taxa value at all above >5
+CoV_overview_5_taxa <- ggplot(data = Q_dat_averages %>% 
+              filter(CoV_ec10eq >5,
+                     n >1), 
+       aes(x = reorder(CAS.Number, -CoV_ec10eq), y = CoV_ec10eq)) +
+  geom_point(aes(color = as.factor(n_Taxonomy.Group_all))) +
+  scale_y_continuous(breaks = c(seq(1,40, by= 1)))+
+  scale_color_brewer(palette="Spectral") +
+  ylab("CoV based on EC10eq independent of taxa") +
+  xlab("CAS.Number")+
+  labs(color = "Taxonomy groups") +
+  ggtitle(paste0("Cutting of CoV at >5",
+                 ", ", 
+                 nrow(Q_dat_averages %>% filter(CoV_ec10eq >5,
+                                                n > 1)), 
+                 " ", 
+                 "data points in here")) +
+  theme(legend.position="top")
+
+CoV_overview_5_taxa
+#ggsave("Graphic_output\\CoV_overview_5_taxa.png", CoV_overview_5_taxa, dpi = 300)
+
+# Cutting of the CoV value at <1
+CoV_overview_under_1 <- ggplot(data = Q_dat_averages %>% 
+              filter(CoV_ec10eq <1, 
+                     !CoV_ec10eq == 0,
+                     n > 1), 
+       aes(x = reorder(CAS.Number, -CoV_ec10eq), y = CoV_ec10eq)) +
+  geom_point(aes(color = as.factor(n_Taxonomy.Group_all))) +
+  scale_y_continuous(breaks = c(seq(0,2, by= 0.2)))+
+  scale_color_brewer(palette="Spectral") +
+  ylab("CoV based on EC10eq independent of taxa") +
+  xlab("CAS.Number") +
+  ggtitle(paste0("Cutting of the CoV value at <1",
+                 ", ", 
+                 nrow(Q_dat_averages %>% filter(CoV_ec10eq <1,
+                                                n > 1)), 
+                 " ", 
+                 "data points in here")) +
+  theme(legend.position="top")
+CoV_overview_under_1
+#ggsave("Graphic_output\\CoV_overview_under_1.png", CoV_overview_under_1, dpi = 300)
+
+  
+# Cutting of the CoV value at <0.2
+ggplot(data = Q_dat_averages %>% 
+              filter(CoV_ec10eq <0.2, 
+                     !CoV_ec10eq == 0,
+                     n > 1), aes(x = reorder(CAS.Number, -CoV_ec10eq), y = CoV_ec10eq)) +
+  geom_point(aes(color = as.factor(n_Taxonomy.Group_all))) +
+  scale_y_continuous(breaks = c(seq(0,2, by= 0.2)))+
+  scale_color_brewer(palette="Spectral") +
+  ylab("CoV based on EC10eq independent of taxa") +
+  xlab("CAS.Number") +
+  ggtitle(paste0("Cutting of the CoV value at <0.2",
+                 ", ", 
+                 nrow(Q_dat_averages %>% filter(CoV_ec10eq <0.2,
+                                                n > 1)), 
+                 " ", 
+                 "data points in here")) +
+  theme(legend.position="top")
+  
+# Removing data without at least 3 taxonomy groups
+ggplot(data = Q_dat_averages %>% 
+              filter(n_Taxonomy.Group_all >=3, 
+                     !CoV_ec10eq == 0,
+                     n > 1), aes(x = reorder(CAS.Number, -CoV_ec10eq), y = CoV_ec10eq)) +
+  geom_point(aes(color = as.factor(n_Taxonomy.Group_all))) +
+  scale_y_continuous(breaks = c(seq(0,40, by= 3)))+
+  scale_color_brewer(palette="Spectral") +
+  ylab("CoV based on EC10eq independent of taxa") +
+  xlab("CAS.Number") +
+  ggtitle(paste0("Cutting of n_Taxonomy.Group at >=3",
+                 ", ", 
+                 nrow(Q_dat_averages %>% filter(CoV_ec10eq <0.2,
+                                                n > 1)), 
+                 " ", 
+                 "data points in here")) +
+  theme(legend.position="top")
+  
+
+```
+
+
+Plotting toxicity according to largest CoV for top 50 CoV substances based on chronic data only (WORKS)
+
+```{r}
+# Looking up the data with largest uncertainties and biggest CoV at CHRONIC data points:
+# top mean CoV for species CoV across species
+max_CoV_chronic <- Q_dat_averages %>% 
+    #slice_max(CoV_logec10eq_chronic, n = 50) %>% 
+    slice_max(CoV_ec10eq, n = 50) %>% 
+    #arrange(CoV_logec10eq_chronic) %>% 
+    arrange(CoV_ec10eq) %>% 
+    select(CAS.Number, CoV_ec10eq, meanEC10eq, medianEC10eq, n) %>% 
+    mutate(Group = "max",
+           CoV_ec10eq = round(CoV_ec10eq, 2),
+           Scale_CoV = seq(1, nrow(.), 1))
+
+# Plot representing EC10eq values for the data with largest CoV spread (for chronic values!) - straight from the Q_dat data frame.
+max50CoV_falling_CoV <- ggplot(
+  HESTIA_BASE_EnviroTox_FILL %>%
+    filter(CAS.Number %in% max_CoV_chronic$CAS.Number) %>% # Using only the max mean CoV
+    mutate(Group = case_when(CAS.Number %in% max_CoV_chronic$CAS.Number ~"max")
+           ) %>% 
+    left_join(
+      x = .,
+      y = max_CoV_chronic %>% 
+            select(CAS.Number,Scale_CoV),
+    by = "CAS.Number"), 
+  aes()) +
+  geom_point(aes(x = reorder(CAS.Number, Scale_CoV), y = EC10eq, color = Taxonomy.Group), size = 0.3)+
+  geom_text(data = max_CoV_chronic, aes(x = CAS.Number, y = Inf, label = CoV_ec10eq), hjust = -0.1, size = 2.5, color = "black") +
+  geom_text(data = max_CoV_chronic, aes(x = CAS.Number, y = 1e-10, label = n), hjust = 0, size = 2.5, color = "black") +
+  geom_point(data = max_CoV_chronic, aes(x = CAS.Number, y = medianEC10eq, fill = "Median EC10eq"), color = "red", size = 2) +
+  scale_y_log10() +
+  coord_fixed(ratio = 2.2)+
+  coord_flip(clip = "off") +
+  ggtitle("Highest CoV 50 substances, sorting by falling CoV") +
+  theme_light() +
+  labs(fill = "") +
+  xlab("CAS Number") +
+  theme(legend.position="top", 
+        plot.margin = margin(0.1, 1, 0.1, 0.1, "cm"),
+        legend.title = element_text(size = 8), 
+        legend.text = element_text(size = 8)) 
+max50CoV_falling_CoV
+#ggsave(filename = "Graphic_output\\Largest CoV 50 substances, sorting by falling CoV.png", plot = max50CoV_falling_CoV, dpi = 300)
+
+# Plot representing EC10eq values for the data with largest CoV spread (for chronic values!) - straight from the Q_dat data frame.
+max50CoV_falling_tox <- ggplot(HESTIA_BASE_EnviroTox_FILL %>%
+        filter(CAS.Number %in% max_CoV_chronic$CAS.Number) %>% # Using only the max mean CoV
+        mutate(Group = case_when(CAS.Number %in% max_CoV_chronic$CAS.Number ~"max")
+               ) %>% 
+          left_join(.,
+                    max_CoV_chronic %>% 
+                        select(CAS.Number, Scale_CoV, medianEC10eq, n),
+                    by = "CAS.Number"), 
+        aes()) +
+  geom_point(aes(x = reorder(CAS.Number, -medianEC10eq), y = EC10eq, color = Taxonomy.Group), size = 0.3)+
+  geom_text(data = max_CoV_chronic, aes(x = CAS.Number, y = Inf, label = CoV_logec10eq_chronic), hjust = -0.1, size = 2.5, color = "black") +
+  geom_text(data = max_CoV_chronic, aes(x = CAS.Number, y = 1e-10, label = n), hjust = 0, size = 2.5, color = "black") +
+  geom_point(data = max_CoV_chronic, aes(x = CAS.Number, y = medianEC10eq, fill = "Median EC10eq"), color = "red", size = 2) +
+  scale_y_log10() +
+  coord_fixed(ratio = 2.2)+
+  coord_flip(clip = "off") +
+  ggtitle("Highest CoV 50 substances, sorting by falling median toxicity") +
+  theme_light() +
+  labs(fill = "") +
+  xlab("CAS Number") +
+  theme(legend.position="top", 
+        plot.margin = margin(0.1, 1, 0.1, 0.1, "cm"),
+        legend.title = element_text(size = 8), 
+        legend.text = element_text(size = 8))
+max50CoV_falling_tox
+
+#ggsave(filename = "Graphic_output\\Largest CoV 50 substances, sorting by falling median toxicity.png", plot = max50CoV_falling_tox, dpi = 300)
+
+## Check publications units
+# Comparative Acute Toxicity of the First 50 Multicentre Evaluation of In Vitro Cytotoxicity Chemicals to Aquatic Non-vertebrates
+# The Influence of Solvents on the Acute Toxicity of some Lipophilic Chemicals to Aquatic Invertebrates
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Visualizing Data variability
+
+Plots to visualize the spread and variability in raw data built up along the averaging process, as well as the comparisons between empirical and estimated data.
+
+The thing that is driving the uncertainties is data availability. 
+To be able to plot this good, i need to use dataset that have lot's of data!
+
+### Spread of data (Scatter plots)
+There are ~2800 data points with a CoV annotation. This needs to be visualized using a scatter plot with error bars defined by CoV or SD...
+
+Extreme uncertainties - CoV for species averages (first averaging operation) as well as the CoV for the chemical averages (second averaging operation)
+
+For this one: plot them side by side at a reasonable y-axis scale
+
+```{r}
+# Plot for all taxa variability for the 10 top toxic substances based on MOST reliable data              
+# creating an index of top/bottom toxicity   
+  # Top (most toxic) 5 CRF-values:
+    max_CRF <- HESTIA_envirotox_EC10eq_second_avg %>% 
+        filter(QSe > 1.77) %>% 
+        slice_max(CRF_best, n = 10) %>% 
+        arrange(CRF_best) %>% 
+        ungroup() %>% 
+        select(CAS.Number, CRF_best, mean_sp_EC10eq, median_sp_EC10eq) %>% 
+        mutate(Group = "max")
+      
+  # Bottom (least toxic) 5 CRF-values:
+    min_CRF <- HESTIA_envirotox_EC10eq_second_avg %>% 
+        filter(QSe > 1.77) %>% 
+        slice_min(CRF_best, n = 10) %>% 
+        arrange(desc(CRF_best)) %>% 
+        ungroup() %>% 
+        select(CAS.Number, CRF_best, mean_sp_EC10eq, median_sp_EC10eq) %>% 
+        mutate(Group = "min")
+
+# Combining both of these min and max to have a list of extremes    
+    min_max_CRF <- rbind(max_CRF, min_CRF)    
+  
+# EC10eq ranges for the top 10 most toxic substances per Taxonomic group 
+ggplot(Q_dat %>%
+       filter(CAS.Number %in% max_CRF$CAS.Number),
+       aes(x = reorder(CAS.Number, -EC10eq), y = EC10eq, color = Taxonomy.Group))+
+      geom_boxplot(aes())+
+      xlab("Most toxic substances (w/ high quality data)")+
+      scale_y_log10() + 
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))#+
+      #ylim(-10, 6.5)+
+      #coord_fixed(ratio = 2.2)+
+      #coord_flip()
+      #ggsave("Most_tox_subst_average EC10eq.png", plot = last_plot(), dpi = 300)
+
+# Plot for taxa-averages for the 5 most toxic substances (according to highest CRF-value in the second averaging operation.) 
+ggplot(Q_dat %>%
+       filter(CAS.Number %in% min_CRF$CAS.Number),
+       aes()) +
+      geom_boxplot(aes(x = reorder(CAS.Number, -EC10eq), y = EC10eq, color = Taxonomy.Group))+
+      #geom_point(data = max_CRF, aes(x = CAS.Number, y = median_sp_EC10eq), color = "red", size = 3) + #<- red dots = median of median species
+      xlab("Least toxic substances (w/ high quality data)")+
+      scale_y_log10()+ #+ 
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) #+
+      #ylim(-10, 6.5)+
+      #coord_fixed(ratio = 0.5)
+      #coord_flip()
+      #ggsave("Least_tox_subst_average EC10eq.png", plot = last_plot(), dpi = 300)
+
+
+# EC10eq ranges for the top 10 most toxic substances per Taxonomic group 
+ggplot(Q_dat %>%
+       filter(CAS.Number %in% min_max_CRF$CAS.Number),
+       aes(x = reorder(CAS.Number, EC10eq), y = EC10eq, color = Taxonomy.Group))+
+      geom_boxplot(aes())+
+      xlab("CAS Number") +
+      ggtitle("Toxicity extremes \n(data based on >5 species & >3 taxonomic group)") +
+      scale_y_log10(n.breaks = 12) + 
+      theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) 
+      
+      #coord_fixed(ratio = 2.2)+
+      #coord_flip()
+      #ggsave("Most_extreme_tox_subst_average_EC10eq.png", plot = last_plot(), dpi = 300)
+
+```
+
+
+## Uncertainties for species with lot's of data.
+Filtering out species from the Q_dat-dataset and look into how CoV is fluctuating
+However, working with quantiles for this purpose is tricky, since defining a quantile will find outliers in every group investigated, naming thousands of substances as outliers. If this is done across All substances, then some reasonable values can be defined as outliers, just because the substance itself is extremely toxic or at the other end of the spectrum.
+```{r}
+ggplot(Q_dat %>%
+  group_by(CAS.Number, AcuteChronic, Species) %>%
+  filter(EC10eq <= quantile(EC10eq, 0.99999, na.rm = T), EC10eq >= quantile(EC10eq, 0.00001, na.rm = T)) %>%
+  ungroup() %>% 
+        filter(Species == "Daphnia magna"),
+      aes(x = CAS.Number, y = EC10eq, color = as.factor(AcuteChronic))) +
+      geom_boxplot()+
+        ggtitle("EC10eq-spread for D. Magna")
+    
+# investigating malathion
+ggplot(Q_dat %>% 
+       filter(CAS.Number == "121-75-5"),
+      aes(x = Taxonomy.Group, y = EC10eq, color = AcuteChronic)) +
+      geom_boxplot()+
+      scale_y_log10() +
+      ggtitle("Malathion - EC10eq-spread for D. Magna")
+    #ggsave("Malathion - EC10eq-spread for D. Magna.png", plot = last_plot(), dpi = 300)
+Q_dat %>% 
+        filter(CAS.Number == "121-75-5") %>% 
+    arrange(EC10eq)
+```
+
+## Largest uncertainties and biggest CoV at ALL DATA POINTS
+```{r}
+# Looking up the data with largest uncertainties and biggest CoV at ALL DATA POINTS:
+  # top variability of 50 EC10eq-values:
+max_CoV <- HC20EC10eq_dataset_second_avg %>% 
+    slice_max(mean_CoV, n = 50) %>% 
+    arrange(mean_CoV) %>% 
+    ungroup() %>% 
+    select(CAS.Number, mean_CoV) %>% 
+    mutate(Group = "max")
+  # Bottom (most toxic) 50 EC20EC10eq-values:
+min_CoV <- HC20EC10eq_dataset_second_avg %>% 
+    slice_min(mean_CoV, n = 50) %>% 
+    arrange(desc(mean_CoV)) %>% 
+    ungroup() %>% 
+    select(CAS.Number, mean_CoV) %>% 
+    mutate(Group = "min")
+
+# Merge the two extremes - combined
+min_max_CoV <- rbind(min_CoV, max_CoV)
+
+# GGPLOT for 50 MAX CoV in dataset
+p_max_CoV <- ggplot(HC20EC10eq_dataset_first_avg %>%
+                filter(CAS.Number %in% max_CoV$CAS.Number) %>% 
+                  mutate(Group = case_when(#CAS.Number %in% min_CoV$CAS.Number ~"min",
+                                           CAS.Number %in% max_CoV$CAS.Number ~"max")), 
+            aes(x = reorder(CAS.Number, CoV_all), y = CoV_all, color = Group))
+  # log10EC10eq & log10EC10eq_low, log10EC10eq_high finns för CI 95%
+p_max_CoV +
+  geom_boxplot(aes())+
+  #geom_point(aes()) +
+  scale_y_log10() +
+  #ylim(-1, 4)+
+  coord_fixed(ratio = 2.2)+
+  coord_flip()
+  
+
+```

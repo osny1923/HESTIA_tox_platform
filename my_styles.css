@@ -1,0 +1,9 @@
+```css
+ Center the iframe 
+#iframe-wrapper {
+  text-align center;
+}
+#iframe-wrapper iframe {
+  display inline-block;
+  vertical-align middle;
+}

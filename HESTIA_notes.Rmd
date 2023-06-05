@@ -1,0 +1,132 @@
+---
+title: "HESTIA_Notes"
+output: html_notebook
+---
+
+2do:
+Weekend:
+Rearrange the entire organization and infrastructure for the HESTIA project.
+Get GitHub
+ - done 2023-03-04
+ 
+Remove taxonomic information as part of the raw data wrangle - make sure it is kept in a master document, but de-selecting columns should not be needed in the toxicological wrangling.
+ - done 2023-03-05
+ 
+Monday 2023-03-06:
+Fix the "values report in range"-issue. Only apply the method to data where no "Value.meanValue" is reported. should be an easy case_when line. DONE
+
+Need summary tables for:
+Value.Qualifiers DONE
+Effect criterions DONE
+Test.Media DONE
+Taxonomy (!)
+Endpoints per species group
+Endpoints per taxonomic group
+taxonomic group overview
+Species groups
+ 
+Apply the methodology that Reinout Heijungs Communicated
+Describe complete methodology in the `HESTIA_report.Rmd`
+
+2023-03-08
+writing a function to replace the tedious dplyr HC20-calculations.
+  The function is however built on dplyr verbs, but minimalistic, and possible to iterate across carious EC10eq-columns, namely the CI-values.
+  The output will generate a df with data important for analysis, but one df per EC10eq input, so three different dfs with the various mean, high CI, and low CI
+Looking into an error where 8k NAs have been introduced in the Value.mg_l column.
+  Introduction due to missing MW.g_mol
+  Looking up the mol weights for these substances. First in PubChem.
+Both DONE
+
+2023-03-13
+
+completed task of applying nls() functions to the data, plotting it and estimating the uncertainty of the HC20EC10eq
+
+Need to make the code work across the whole dataset, adding the estimated mu & sigma to the final HC20 values to plot the spread of these uncertainties!
+
+Additionally, make the plotting-code operational across the entire dataset, 
+exporting figures named by "HC20_uncertainty_CASRN_date.png"
+
+
+2023-03-14
+HESTIA Meeting
+HESTIA will begin Split up the substances into use_groups
+Send `HESTIA_Comp_info_7` to Joseph Poore at HESTIA
+ - file above is currently called `HESTIA_chem_list_slim` 
+
+2023-04-04
+At 17.00 when trying to fix the Github issue with a large file blocking new commits, i managed to reset the state of all files to the last post here (2023-03-14). 
+disaster.
+2023-04-05 to 10
+Need to redo code for the following documents:
+[X] Pesticide_annotations.Rmd <- PRIO because then i can simplify the code in the file below
+[X] Physicochemical_properties.Rmd
+[X] Taxonomy_wrangling.Rmd
+[X] Envirotox_DB.Rmd
+[X] HESTIA_HC20_DB.Rmd
+
+
+2023-04-11
+Also need to revise the following documents, which was poorly done to begin with
+[ ] QSAR_Tox_DB.Rmd (Based on the old CAS-SMILES matches)
+[ ] HESTIA_HC20_Stats_and_summary_tables.Rmd (probably just a bunch of old code chunks piling up)
+[X] Convert HC50-calculations into a portable function()
+[X] The HC50 calculations require substance property and use-annotations. HC50 calc. applies to the combined HESTAI and Envirotox datasets, but the NEW_Physchem only has HESTIA data. 
+[X] The `Physchem_and_Pest_annot_Envirotox.Rmd` is not finalized yet! pest_annot and physchem is not yet merged into one df.
+[X] Remove taxonomic definitions higher than binomial species in HESTIA_HC20_DB wrangling - Including java-output flowchart
+[X] Adapt the HC20-output as USEtox 2.1-friendly format.
+
+2023-04-12
+DEBUGGING:
+[X] Why is there a col "X" in Q_dat
+[X] Why are there so many source elements missing in "Source"
+[X] Species are defined as "NA". make sure to filter out missing species annotations!
+ - Species annotations are wonky in the  GBIF query!! 
+[X] Why aren't the nls function working???
+ - reinstated the selfStart-function and conditionally plot confidence intervals at the HC20 working point.
+
+2023-04-13
+Analysis needs work.
+[X] pull the uncertainties from the nls models and look into how far the low//high are from the center value.
+ - are they equal, use one value with the center calue and create a relative uncertainty measurement.
+ - are they not equal, calculate the range and with the center value create a relative uncertainty measurement.
+[X] visualize this in a ranked scatterplot
+[X] look for WHY uncertainty varies:
+[X] PLOT: is it dependent on n data points?
+[X] PLOT: is it dependent on substance size/Mol.weight?
+[X] PLOT: is it dependent on Pesticide or other classification?
+[ ] kolla upp skillnad mellan confidence interval and percentile
+[ ] Renskriv metoddelen för rådata -> nls -> output!
+
+[ ] Pull out the data in Patriks article and send along with the low/high percentiles
+[ ] look into working with the HC10 and HC50 using EC10 data. and WHY they chose HC20!
+ - point of future work, but discuss the HC20??
+[ ] Suggestion from Reinout: extract the data-oriented toxicity value for a few data-rich chemicals at the 20% working point and compare to the curve-fitted value. Is there a minimum point  
+[ ] EnviroTox Copyright issue - how am I allowed to present data?
+ 
+
+2023-05-08
+[ ] Owsianiak et al., references print full author name due to two papers with Owsianiak as first author.
+
+
+2023-06-02
+[ ] Shiny app only shows ~30 substances to chose from in the drop-down menu for SSD curve creation
+
+
+
+
+[ ] look into journals: Environmental Health Perspectives (EHP)
+[ ] look into journals: Chemosphere
+ - **Formatting requirements**
+ There are no strict formatting requirements but all manuscripts must contain the essential elements needed to convey your manuscript, for example Abstract, Keywords, Introduction, Materials and Methods, Results, Conclusions, Artwork and Tables with Captions.
+ - **Figures and tables embedded in text**
+Please ensure the figures and the tables included in the single file are placed next to the relevant text in the manuscript, rather than at the bottom or the top of the file. The corresponding caption should be placed directly below the figure or table.
+ - **Author contributions**
+ For transparency, we encourage authors to submit an author statement file outlining their individual contributions to the paper using the relevant CRediT roles: Conceptualization; Data curation; Formal analysis; Funding acquisition; Investigation; Methodology; Project administration; Resources; Software; Supervision; Validation; Visualization; Roles/Writing - original draft; Writing - review & editing. Authorship statements should be formatted with the names of authors first and CRediT role(s) following. 
+ 
+ 
+ 
+ 
+MONTE CARLO
+Running Monte Carlo: 
+Printa ut listor på simulerad data, plotta för att se ifall antalet samples konvergerar mot empirisk data.
+Sök efter hur man kör monte carlo på fördiga dataset (listor) utan att ha massa antaganden.

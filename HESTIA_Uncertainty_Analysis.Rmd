@@ -1,0 +1,746 @@
+---
+title: "Uncertainty analysis of toxicological effect data used in life cycle assessment"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output:
+  bookdown::word_document2:
+    number_sections: no
+  bookdown::html_document2:
+    number_sections: no
+    includes:
+      in_header: my_styles.css
+always_allow_html: yes
+bibliography: references.bib
+---
+```{r setup, echo = FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(message = F, warning = F, echo = F)
+# These libraries are used for analysis
+  #install.packages("bookdown")    
+  #install.packages("flextable")    
+  #install.packages("ggforce")
+  library(rmarkdown)
+  library(flextable)
+  library(bookdown)
+  library(tidyverse)
+  library(webchem)
+  library(taxize)
+  library(kableExtra)
+  library(gridExtra)
+  #library(htmltools)
+  #library(htmlwidgets)
+  library(ggforce)
+
+```
+
+```{css}
+.math {
+  font-size: small;
+}
+```
+
+
+```{r}
+# Load the final database
+HESTIA_BASE_EnviroTox_FILL <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv")
+EnviroTox_DB <- readxl::read_xlsx(
+  path = "data/Envirotox_2023-01-10/envirotox_DB_20230110081208.xlsx", sheet = "test", col_names = T, col_types = c(
+    "skip", rep("text", times = 4), "guess", rep("text", times = 4), "guess", "guess", "logical", rep("text", times = 3), "numeric") ) %>% 
+  rename(
+   Endpoint = `Test statistic`,
+   AcuteChronic= `Test type`,
+   Species = `Latin name`,
+   Value.mg_l = `Effect value`,
+   Time.Hours = `Duration (hours)`) %>% 
+  mutate(
+    DB = "EnviroTox",
+    CAS.Number = as.cas(`original CAS`),
+    AcuteChronic = case_when(
+      AcuteChronic == "A" ~ "Acute",
+      TRUE ~ "Chronic"))
+```
+
+
+
+Oskar Nyberg$^{1,\dagger}$, Reinout Heijungs$^{2,3}$, Patrik Henriksson$^{4,5,6}$
+
+\vspace{20mm}
+${^1}$ Department of Ecology, Environment and Plant Sciences, Stockholm University, Stockholm, Sweden
+${^2}$ Department of Operations Analytics, Vrije Universiteit, Amsterdam, The Netherlands  
+${^3}$ Institute of Environmental Sciences, Leiden University, Leiden, The Netherlands  
+${^4}$ Stockholm Resilience Centre, Stockholm, Sweden  
+${^5}$ WorldFish, Jalan Batu Maung, Penang, Malaysia  
+${^6}$ Beijer Institute of Ecological Economics, The Royal Swedish Academy of Science, Stockholm, Sweden  
+
+
+
+${\dagger}$ Corresponding author:[oskar.nyberg@su.se](mailto:oskar.nyberg@su.se)
+
+
+\newpage
+## Abstract {-}   
+We construct a database from a large set of openly available ecotoxicological effect data for a large set of chemicals with potential negative environmental impact and calculate ecotoxicological effect values for use in life cycle impact assessment. We then model the uncertainties at the $log(HC20_{EC10^{eq}})$ values for all chemicals that have sufficient effect data records available using a NLS model based on the cumulative normal distribution function. We finally explore the potential to complement or replace ecotoxicological effect data with estimations generated from quantitative structure-activity relationship models. 
+
+\newpage
+
+## Introduction{-}  
+
+Increasing chemical use is a major concern for operating within the safe space of planetary boundaries, and agriculture is a major driving force behind this increase, through pesticide use, veterinarian drugs, and disinfectants ($?$Gordon et al. 2017; $?$Persson et al. 2022). Chemical use in agriculture is also expected to continue to increase in the coming decade, as a result of larger production volumes and more intensive production systems [@schreinemachers2012]. However, data on potentially toxic chemicals used for different farming systems, toxicity evaluations for different compounds, and variability in toxicity potentials are incomplete and fragmented, hampering accurate global comparisons of ecotoxicity impacts of different food products [@van2020towards]. Accurate toxicological characterization of chemicals is essential for ensuring the safety of human health and the environment, where proper toxicological characterization involves identifying and evaluating the potential adverse effects of chemicals, determining the level of exposure that is safe for humans and the environment, and assessing the risk posed by exposure to chemicals [@krewski2010].
+
+Environmental Risk Assessment (ERA) has been the primary tool for evaluating toxicological risks at fields and farms, but it is limited to individual processes in production chains (e.g. grow-out). This can be limiting when trying to understand the overall impacts of food products, including e.g. all ingredients used to produce animal compound feeds. Subsequently, life cycle assessments (LCAs) have increasingly been used as a complementing framework to benchmark toxicological impacts of agrifood products. LCA is an ISO-standardized environmental framework that seeks to aggregate the emissions and products that are needed throughout a value chain, and characterize these towards one or more environmental impacts. The results are also scaled to a predefined unit of reference (functional unit), which allows for comparisons to be made between products (e.g. in terms of kg food), functions (e.g. in terms of kcal), or services (e.g. washing one plate). It is most commonly encountered as the methodology behind carbon footprints, but is also used to quantify freshwater consumption, land occupation, eutrophication, biodiversity loss, or toxicity impacts [@hauschild2015]. Toxicity impacts, in turn, are commonly evaluated in terms of human toxicity, either including or excluding cancer cases, and ecotoxicity impacts on freshwater, marine, or terrestrial ecosystems [@hauschild2015].
+
+LCA is cruder than ERA when it comes to evaluating toxicological effects, as it disregards temporal scales and critical concentrations, assumes inputs equal to emissions, simplifies assumptions related to release location and exposure, and disregards ‘cocktail effects’ between chemicals (Fantke et al., 2015). In the meantime, it can capture toxicological impacts throughout whole value chains, from mercury emissions from coal-fired power plants to therapeutants used in aquaculture ponds. LCAs can thereby provide useful insights into where in value chains the largest toxicity reductions can be achieved, such as that most freshwater ecotoxicological impacts related with prawn farming in Bangladesh are related to the production certain agricultural materials used for feeds, and not the prawn grow-out [@henriksson2015].
+
+To assess ecotoxicological impacts throughout the value chain of a product, ecotoxicological characterization factors for chemicals are used to evaluate potential impact of different chemicals in the life cycle impact assessment (LCIA) phase of an LCA. Toxicological effect data for chemicals provide, together with data on fate and exposure, the basis for characterization factor calculations within LCA. These data, however, are notoriously heterogeneous since they are reported across thousands of tested species at variable concentrations, measured effects, and at various empirical or modeled endpoints, resulting in large uncertainty and variability (which we will from here on simply refer to as "uncertainty") in characterization factor calculations. To investigate uncertainties in the ecotoxicological effect data that is used to calculate ecotoxicological characterizations we have queried the OECD QSAR Toolbox [@dimitrov2016qsar] for ecotoxicological effect data for the 16797 chemicals included in the HESTIA inventory (https://www.hestia.earth) and gathered all non-proprietary records available. Additional data were sourced from EnviroTox, a curated ecotoxicological database for `r nrow(EnviroTox_DB %>% distinct(CAS.Number))` substances [@connors_2019]. 
+
+HESTIA is a free open-access platform that provides a data repository for life cycle inventory data using a harmonized schema and glossary of terms, and calculations tools for various emissions and impact assessments. The ambition of HESTIA is to make environmental benchmarks of agrifood commodities more accessible and transparent, by providing a free harmonized framework. Given that the agrifood sector is a major user of potentially toxic chemicals, mainly in terms of pesticides and therapeutants, we deem it important to provide a complete and verifiable set of ecotoxicity potentials as possible.
+
+The evaluation of toxicological impacts in LCA is limited by the number of chemical compounds characterized by impact assessment methodologies. The characterization factor is the value used to translate the amounts of chemicals used to its potential toxicity impact. There are several different impact assessment methodologies to derive these characterization factors, including USES-LCA v1&2 [@huijbregts2000; @vanZelm2009], IMPACT 2002 [@pennington2005], and UNEP-SETAC’s USEtox [@Fantke_2017], but ultimately they all rely on fundamental data on toxicity and physicochemical properties. Among these impact assessment methodologies, the USEtox model is most widely used at present, and also the one promoted by the European Platform on Life Cycle Assessment (ILCD, 2010). The USEtox model is currently on version 2.1, and readily presents 2499 freshwater ecotoxicological characterization factors for different chemicals, derived from physicochemical properties and empirical data at the 50% (EC50) endpoint, presented as the 50th percentile response level on the species-sensitivity distribution (SSD) model curve, denominated the HC50 value [@Fantke_2017]. For chemicals not readily characterized, the USEtox model also allows users to derive their own characterization factors through an Excel spreadsheet, but this is, in turn, dependent on access to physicochemical and toxicological properties for each chemical. 
+
+Based on a series of recent expert workshops, updated recommendations on which toxicological input data should form the SSD slopes for characterization of substances has been published (Owsianiak et al., [-@owsianiak2019]). The new recommendations include using effect data at concentrations within a range similar to ambient environmental concentrations to construct SSD models which translates into usage of the endpoints no observed effect concentration (NOEC), lowest observed effect concentration (LOEC), or effect concentrations at 0, 10 and 50% response level (EC0, EC10 & EC50) endpoints when constructing SSD curves. This necessitates harmonization of data given as different endpoints into one coherent effect equivalent, recommended as effect concentration at the 10% response level equivalent (EC10eq; @aurisano_2019). Additionally, recommendations set the working point for toxicological effect factor at the 20th percentile response level using EC10eq data under the assumption that ecotoxicological data is log-normally distributed resulting in effect data being log(10)-transformed, hence this point is called $log(HC20_{EC10^{eq}})$. From this point value, it is easy to calculate the concentration-response slope factor at the 20% response level ($CRF_{HC20}$) which is multiplied by a severity factor to derive the effect factor (EF) which, in turn, is multiplied with environmental fate, and ecosystem exposure products to produce characterization factors for chemicals emitted to the environment through a products' life cycle (Owsianiak et al., [-@owsianiak_2022]). 
+
+In October 2022, @sala_2022 published the [EU environmental footprint (EF v3.1) database](https://eplca.jrc.ec.europa.eu/ecotox.html) database constructed from toxicological data from three repositories; the OpenFoodTox database, the Pesticide Property Database, the Registration, Evaluation and Restriction of Chemicals (REACH; European Chemicals Agency, http://echa.europa.eu/) database, as well as the USEtox v2.1 database for records missing in the previous repositories. The EF v3.1 database is substantially (140%) larger than the former USEtox v2.1 database of toxicological characterization factors, easily accessible online and presents substances’ physicochemical and toxicological data as well as characterization factors for 6,038 chemicals based on $log(HC20_{EC10^{eq}})$ values [@saouter_2019-1; @sala_2022]. While this is a big improvement, it is still far from the complete list of potentially toxic chemicals encountered in agrifood production. However, parts of the toxicological records used to calculate $log(HC20_{EC10^{eq}})$ values are defined as proprietary substance registrations within REACH database, are thus protected by confidentiality agreements and have been made unavailable to the public. This is unfortunate, as one of the 19 key recommendations of the Ecotoxicity Task Force and the Pellston workshop that was held in 2018 in Valencia, Spain is to “use data that has a traceable origin” (Owsianiak et al., [-@owsianiak_2022]). Since the present HESTIA database was under construction at the release of EF v3.1, data sources overlap only to a minor extent, and original data sources are accessible within the HESTIA database, the continued assembly of the HESTIA database was motivated.
+
+The objective of this article is to calculate $log(HC20_{EC10^{eq}})$ values according to the most recent modeling recommendations for all openly available toxicological effect data and using this data set investigate and report statistical uncertainty for the data that form the basis for characterization factor calculations. Our approach is to apply weighted means to species-specific effect concentration averages when constructing SSD curves and to explore the uncertainty in $log(HC20_{EC10^{eq}})$ values a using a non-linear least squares fit model to a cumulative normal distribution of data. Additionally, we estimate ecotoxicological data based on quantitative structure-activity relationships (QSAR) for evaluating the applicability of ecotoxicological effect data in covering more substances or complement toxicological data based on animal testing. Finally, data are reported as a **shiny-application at website:X** to better inform environmental impact calculations for agrifood LCAs.  
+
+\newpage
+
+## Methods{-}  
+### HESTIA data collection {-}
+The starting point for constructing a database with ecotoxicological effect data to calculate characterization factors suited for the online life cycle assessment (LCA) application HESTIA ([http://HESTIA.earth](http://hestia.earth)) is the substance inventory; a list of 16797 CAS registry numbers (CASRN) and matching chemical names of potentially harmful substances *based on the United States Environmental Protection Agency's Substance Registry Services (USEPA SRS) inventory.*
+```{r Physchem info, echo=FALSE}
+# Physchem wrangle function
+source("code/Physchem_read_wrangle_function.R")
+# Processing and wrangling the raw data through function loaded above
+Physchem_HESTIA <- Physchem_read_wrangle_function(read.csv("data/QSAR_Toolbox_physchem_data_2023-03-24_RAW.csv", header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE))
+
+# Loading the slim version of the Pesticide annotations data for substance use properties and merge this here.
+HESTIA_chem_list_slim <- read.csv("results/HESTIA_chem_list_slim.csv")
+
+HESTIA_chem_prop_list_full <- read.csv("results/HESTIA_chem_prop_list_full.csv")
+
+NEW_PHYSCHEM <- left_join(
+  x = Physchem_HESTIA, 
+  y = HESTIA_chem_list_slim, 
+  by = "CAS.Number"
+) %>% 
+  select(CAS.Number, CanonicalSMILES, PesticideAI_name, 2:31)
+
+# Merging all physchem & subst. use-type annotations 
+FULL_PHYSCHEM <- rbind(
+  NEW_PHYSCHEM,
+  read.csv("data/excel_references/Envirotox_physchem.csv") %>% 
+    # managed to get some duplicates in here. Could fix by redoing physchem query at OECD QSAR Toolbox in Envirotox wrangle, but also just down-prioritize (filter out) those duplicates here.
+    filter(!CAS.Number %in% NEW_PHYSCHEM$CAS.Number))
+
+```
+
+CASRN and chemical names were queried to match SMILES configurations acquired from the NCBI PubChem database using the R package Webchem [@Webchem_2020]. 
+Chemicals were defined as organic or inorganic based on presence or absence of carbon [C] in the SMILES configuration. Halogenated chemicals are defined as chemicals containing the elements [F], [Cl], [Br], [I], and heavy metals are defined as chemicals containing elements with a density $\ge$ 5 $g\text{ per }cm^{3}$ and an atomic number >20 [@raychaudhuri2021].  
+**multi-constituent chemicals are neglected throughout the whole project due to difficulties in collecting correct data.**  
+Based on the CASRN-SMILES matches three distinct data queries were taken: 
+
+1)  
+Information on chemical use-categories of chemicals in the HESTIA inventory were gathered from several repositories (see supporting materials):  
+*a) US EPA ECOTOX DB (downloaded on 2022-03-10) where information in "ecotox_group" was extracted using CASRN,*  
+*b) the British Compendium of Pesticide Common Names (BCPC) accessed via R package "Webchem" [@Webchem_2020] and matched to CASRN,*  
+*c) the Anatomical Therapeutic Chemical (ATC) classification system inventory was compared to chemical names in groups P (antiparasitic products, insecticides and repellents) and J (antiinfectives for systemic use) to define chemicals as "Pesticides" and "Antibiotics" respectively. The ATC classification system inventory was downloaded via R package "Webchem" function "chembl_atc_classes" [@Webchem_2020],*   
+*d) the Chemical Entities of Biological Interest ([ChEBI](https://www.ebi.ac.uk/chebi/init.do)) was queried for the definition "has role" where use-classification was extracted and matched to CASRN using R package "Webchem" [@Webchem_2020], and *  
+*e) USEPA CompTox v2.2 (query date 2023-01-20) by searching "chemical lists" -> "list names" using the queries "pesticides", "anti" (to select lists for "antibiotic", "antifungal", and "antiviral"-chemicals ), "pharmaceutical", "herbicide", "insecticide", and "rodenticide" where the following inventories were compiled into one data set (contents marked as the respective use-category): DRUGBANK (content marked as "Pharmaceutical"), United States Environmental Protection Agency: Pesticide Chemical Search Database (EPAPCS; content marked as "Pesticide"), Healthy Building Network (HBN; content marked as "Antibiotic"), NORMAN Innovative Training Network ([@paulus2019]; content marked as "Antibiotic"), OPPIN (content marked as "Pesticide"), Pesticide properties Database (PPDB; content marked as "Pesticide"), USEPA (content marked as "Antibiotic", "Pesticide ingredient", or "Pesticide"), and Wikipedia (content marked as "Antibiotic", "Antifungal", "Antiviral", "Insecticide", "Herbicide", "Rodenticide", or "Veterinary drug") for each substance respectively to categorize chemicals into groups: `r knitr::combine_words(FULL_PHYSCHEM %>% distinct(Group) %>% arrange(Group) %>% pull(Group))`.*  
+
+2)  
+Query the OECD QSAR Toolbox v4.5 [@dimitrov2016qsar] for physicochemical properties required by USEtox v2.1: `r knitr::combine_words(names(NEW_PHYSCHEM[,c(6,8:19)]))`.
+
+3)  
+Query the OECD QSAR Toolbox v4.5 [@dimitrov2016qsar] for available aquatic ecotoxicological records for the entire HESTIA chemical inventory from the following toxicological endpoints: EC10, EL10, IC10, LC10, LOEC (grouped as “EC10”); EC50, EL50, IC50, LC50 (grouped as “EC50”); EC0, LC0, NOAEC, NOEC, NOER, NOEL (grouped as “NOEC”), according to the methodology of [@aurisano_2019]. Further curation of toxicological records include the selection of relevant effect criterions (Behavior, Growth, Intoxication, Population, Reproduction, Acute, Cell(s), Growth Rate, Mortality, Feeding Behavior, Biomass, Body Weight, Chronic, Frond Number, Development, Mobility,Seedling Emergence, and Immobilization), curation of values reported as ranges following the methodology of Saouter et al., [-@saouter_2018], removal of records based on QSAR data and records identified as reported bioassay data, as well as inaccurate database entries. Records where test medium is marked freshwater and culture media are kept, including blank reports after confirming that at most of those records are belong to freshwater species (e.g. *Daphnia magna*, *Pseudokirchneriella subcapitata*, *Pimephales promelas* and *Oryzias latipes*).  
+Records with taxonomic information annotated as binomial species names (i.e. *Daphnia magna*) are kept, including annotations at a lower taxonomic level, such as sub-species or *varietas*. Meanwhile, any record with taxonomic annotation higher than species level, such as genus or class or higher, are discarded as to no misrepresent a presence of an "artificial" species in the downstream calculations. Complete taxonomic information was collected for all species using R package Taxize [@Taxize], and taxonomic rank at class and phylum level used to categorize organisms into "taxonomic groups" (e.g `r knitr::combine_words(HESTIA_BASE_EnviroTox_FILL %>% distinct(Taxonomy.Group) %>% pull(Taxonomy.Group))`).  
+Test duration and test concentration units were harmonized into hours and $mg\text{ } L^{-1}$ respectively, and records not possible to convert were discarded. Acute and chronic definitions of tests were defined as chronic at $\ge$ 168 hours for groups Fish, Plants, Insects, Mollusca, Annellidae, and Amphibians (as well as the rare chordates and cnidarians belonging to taxonomic group "others"), $\ge$ 96 hours for groups Crustaceans and arthropods, and $\ge$ 24 hours for groups Algae and Rotifera, according to the methodology of [@aurisano_2019]. Note that we chose to limit the data set to records with a test duration $\ge$ 24 hours, thus removing all "acute" tests for Algae and Rotifera.  
+
+The last step of curating data from the OECD QSAR Toolbox query was to apply regression coefficients for endpoint conversion of effect data from acute EC50 and NOEC, and chronic EC50 and NOEC into chronic EC10eq following the suggested coefficients from [@aurisano_2019] Table \@ref(tab:extplTable).  
+
+```{r extplTable}
+EC10_extrapolation_table <- read.csv("data/excel_references/EC10_extrapolation_factor_summary_table.csv")
+EC10_flex_table <- flextable(EC10_extrapolation_table)
+
+EC10_flex_table %>% 
+  set_caption("Conversion factors applied for respective endpoints for conversion into 'EC10eq', modified from Aurisano et al., 2019") %>% 
+  fontsize(., size = 9, part = "all") %>%
+  flextable::set_header_labels(
+    q = "Assigned endpoint", 
+    a = "Acute or Chronic", 
+    t = "Taxonomic group", 
+    g = "Extrapolation factor", 
+    h = "97.5% CI", 
+    l = "2.5% CI") 
+```
+
+
+Lastly, we merge the data set with selected (non-overlapping) records from the EnviroTox toxicological database. The EnviroTox toxicological database by Connors et al., [-@connors_2019] is a curated aquatic toxicological database containing a large set of toxicological data from a broad range of potentially toxic substances. Prior to merging the two databases, curation of the EnviroTox database was performed accordingly:  
+Toxicological endpoints were selected and grouped as for HESTIA database (Table STX), Acute and Chronic test duration definitions were performed according to taxonomic group and duration of experiment. The EnviroTox team have thouroughly refined acute/chronic exposure selection methodology yet for the current purpose we chose to categorize acute/chronic definitions in a harmonized way according to the methodology described above. Taxonomic information from the EnviroTox database was slightly revised to match the HESTIA data set (e.g minor spelling corrections). With harmonized acute/chronic definitions, identical taxonomic descriptions and endpoint conversions, extrapolation factors for EC10eq conversions were added to effect data as for the previous data set. Since data sources overlap across the HESTIA and EnviroTox data sets, records are selected from EnviroTox when 1) all records with CASRN unique to EnviroTox, and 2) records where species, but not CASRN, are unique to EnviroTox. 
+For details on the processing of data, please see supporting information (`code/Pesticide_annotations.Rmd`, `Physchem_read_wrangle_function.R`, `data/raw_data_read_and_wrangle.R`, and `HESTIA_HC20_DB.Rmd`).  
+
+### Exploring QSAR methods
+The applicability of toxicological effect data derived from quantitative structure–activity relationship (QSAR) models generated are explored using VEGA software application [@Benfenati2013VEGAQSARAI]. Estimated effect concentrations are based on substances’ SMILES configuration and the estimated effect data is reported with the unit mg/L along with a quality evaluation of the prediction based on the similarity to compared compounds. Model estimation quality is calculated as a compounded similarity index which evaluates similarities to validated training data sets of chemicals as an "applicability domain" (AD) index and is reported as "EXPERIMENTAL", "GOOD", and "MODERATE", "LOW", or "ERROR" for each chemical respectively [@floris2014generalizable]. Since training data sets only contain organic substances, multi-constituent or metal-complexes will be given "ERROR" status. Fifteen selected QSAR models were applied across the `r nrow(read_tsv("data/excel_references/CAS_CID_list_final.txt", col_names = F)[,2] %>% filter(!is.na(.)))` chemicals with SMILES configuration available (see Table \@ref(tab:QSARModels)). Full documentation of models, training data and AD index parameters is provided at the [VEGA QSAR online platform](https://www.vegahub.eu/portfolio-item/vega-qsar-models-qrmf/). Estimated effect concentrations were subsequently transformed into EC10eq using the same regression coefficients as for the empirical data set: 0.6 for Chronic NOEC to chronic EC10eq conversions and 2 for Acute E(L)C50 to chronic EC10eq. $log(HC20_{EC10^{eq}})$ and $CRF_{HC20}$ values are subsequently calculated according to the methodology used for the HESTIA empirical toxicological effect data set. Here species-specific averages are applied across "algae", "D.magna", and "fish", which means that the number of species data to construct SSD models is not sufficient (number of species <5), therefore no SSDs are constructed, but HC20EC10eq-values are calculated using eq.1-7. One "high-quality" data set is created from a subset of the QSAR estimations where only records with "EXPERIMENTAL", "GOOD", and "MODERATE" quality are selected as a complimentary analysis. Quality of all available predictions are measured as a "QSAR-Empirical match ratio" between the calculated HC20-values based on QSAR estimations ($HC20_{QSAR}$) and the HC20-values based on empirical records ($HC20_{emp}$) as $\frac{HC20_{QSAR}}{HC20_{emp}}$.   
+
+### Exploring weighted means of averages and uncertainty through nonlinear least square fit modeling{-}
+Based on the assumption of lognormal distribution of ecotoxicological effect data, we investigate the uncertainties of the $log(HC20_{EC10^{eq}})$ value by fitting all records per substance to a nonlinear least squares model to explore $\mu$ and $\sigma$ at the 20% response level on the SSD curve. First, we define the raw data. For a specific substance $x$, we have $EC10^{eq}$ data for species $i$, done in a number of experiments, labeled as $k = 1,…,n_i$. The data are thus indicated as $EC10_{i,k}^{eq}$, Throughout the analysis, we will work with the logarithm of the data, and for conciseness the data are indicated as $L_{(i,k)}$, thus:
+
+\begin{equation}
+L_{i,k} = log(EC10_{i,k}^{eq}) 
+(\#eq:eq1)
+\end{equation}
+
+The per-species average over all samples are found as:  
+
+\begin{equation}
+M_{i} = \frac{1}{n_{i}}\sum_{k=1}^{n_{i}}L_{i,k}
+(\#eq:eq2)
+\end{equation}
+
+and the corresponding standard deviation as:
+
+\begin{equation}
+S_{i} = \sqrt{\frac{1}{n_{i}-1}\sum_{k=1}^{n_{i}}(L_{i,k}-M_{i})^2}
+(\#eq:eq3)
+\end{equation}
+
+The average values $M_i$ have a standard error $E_i$ that is given by:
+
+\begin{equation}
+E_{i} = \frac{s_{i}}{\sqrt{{n_{i}}}} = \sqrt{\frac{1}{n_{i}(n_{i}-1)}\sum_{k=1}^{n_{i}}(L_{i,k}-M_{i})^2}
+(\#eq:eq4)
+\end{equation}
+
+Next, we make the assumption that species sensitivity follows a lognormal distribution. This is in agreement with a mainstream practice of ecologists (ref Posthuma et al?). Because we have transformed the data with a logarithm, we now have a normal distribution for the $M_i$-values. This distribution is characterized by two parameters, the mean ($\mu$) and the standard deviation ($\sigma$), which are traditionally estimated as follows:
+
+\begin{equation}
+\hat{\mu} = \frac{1}{m}\sum_{i=1}^{m}M_{i}(\#eq:eq5)
+\end{equation}
+
+\begin{equation}
+\hat{\sigma} = \sqrt{\frac{1}{(m-1)}\sum_{i=1}^{m}(M_{i}-\hat{\mu})^2}(\#eq:eq6)
+\end{equation}
+
+Also, the $log(HC20_{EC10^{eq}})$ is found as the 20-percentile value of the distribution:
+
+\begin{equation}
+log(HC20_{EC10^{eq}}) = \hat{\mu} + z_{0.2}\hat{\sigma}
+(\#eq:eq7)
+\end{equation}
+
+where $z_{0.2}$ is approximately -0.84.  
+The uncertainty of this estimate basically depends on two elements: the uncertainty in $\hat\mu$ and the uncertainty in $\hat\sigma$. Both of these depend on the degree of fit with the normal distribution, and with the intra-species variation. Our approach will be to fit a normal distribution to the vector of mean values $M_{i}$, weighted with the reciprocal of the variance, $(\frac{1}{E_{i}})^2$.
+Suppose we fit a function ${F(x;\mu,\sigma)}$ to the cumulative distribution of $M_{i}$-values, each of which is associated with a standard error $E_{i}$. We can find the optimal values of $\mu$ and $\sigma$ through a least-squares minimization of the residual:
+
+
+\begin{equation}
+min\left (\sum_{i=1}^{m}\frac{1}{E_{i}^{2}}(y_{i}-F(m_{i};\mu,\sigma))^{2} \right)
+(\#eq:eq8)
+\end{equation}
+
+Here, $y_{i}$ denotes the order of appearance in the cumulative form. More precisely,
+
+\begin{equation}
+y_{i}=\frac{rank(M_{i}-0.5)}{m}
+(\#eq:eq9)
+\end{equation}
+
+For F, we take the cumulative normal distribution, given by
+
+\begin{equation}
+F(m_{i};\mu,\sigma) = \frac{1}{2}+\frac{1}{2}erf\left( \frac{x-\mu}{\sigma\sqrt{2}} \right)
+(\#eq:eq10)
+\end{equation}
+
+To model estimates for $\hat\mu$ and $\hat\sigma$, we fit a nonlinear least-squares (nls) regression model to the toxicological dose-response data using R-programming language. The script defines the cumulative normal distribution function (Eq. 10) and a self-starting function for the cumulative normal distribution to solve for the least squares residual of $\mu$ and $\sigma$, programming in R allow the use of the `nls()`function for solving cumulative normal distribution functions. Starting points the model are defined as $\mu_{start} = \frac{1}{m}\sum_{i=1}^{m}M_{i}$ and $\sigma_{start} = \frac{1}{m}\sum_{i=1}^{m}S_{i}$ respectively. In cases where only one toxicological record per species is available, $\sigma_{start}$ is not obtainable thus an arbitrary value of $\sigma_{start} = 1$ is used. Then, the function selects the unique CAS numbers and checks that there are at least 5 distinct species and 3 distinct taxonomic groups for each CAS number. If there are insufficient data, the function skips to the next CAS number. If there are sufficient data, the function calculates the mean and standard deviation of the log-transformed EC10eq values for each species within each taxonomic group. The mean values are then ranked and the self-starting function is used to fit a cumulative normal distribution to the ranked means. For each CAS number, the function outputs a list that contains the CAS number, the $log(HC20_{EC10^{eq}})$ value, $CRF_{HC20}$, the estimated parameters of the cumulative normal distribution $\mu$ and $\sigma$, the 2.5 and 97.5 percentiles of the parameter estimates, the number of species and taxonomic groups used in the analysis, the number of records (i.e., EC10 values) for the CAS number, the status of the analysis (i.e., "not enough data" or "converged"), and the raw output from the nls regression (nls_results). If specified, the function also creates a plot of the dose-response curve for each CAS number.  
+
+OECD QSAR Toolbox v.4.5 was used for collecting ecotoxicological data and physicochemical data, VEGA QSAR software v.1.2.0 was used to generated QSAR estimates for toxicity.`r version$version.string` has been used for data collection, curation and visualization, text and data was published using Pandoc v.`r rmarkdown::pandoc_version()` and Shiny R package version 1.7.4.9002 was used to construct the interactive web-based uncertainty explorer [@shiny].  
+
+```{r pkgs}
+pkgs <- sessioninfo::package_info(pkgs = "attached", dependencies = FALSE)
+pkgtbl <- tibble(
+  package = pkgs$package,
+  version = pkgs$ondiskversion,
+  source = gsub("@", "\\\\@", pkgs$source)
+)
+pkgtbl_for_suppmat <- flextable(pkgtbl)%>% 
+  flextable::fontsize(., size = 9, part = "all")
+```
+
+### Results{-}  
+The curated data set contain toxicological data with `r nrow(HESTIA_BASE_EnviroTox_FILL %>% filter(DB == "HESTIA"))` records across `r nrow(HESTIA_BASE_EnviroTox_FILL %>% distinct(Species))` species (Table \@ref(tab:Qdat-summary)), adapted for freshwater aquatic ecotoxicological potential (e.g. ecotoxicological effect factor) calculations at HC20EC10eq (hazard concentration where 20% effect is expected at the EC10eq concentration) for a set of `r nrow(HESTIA_BASE_EnviroTox_FILL %>% filter(DB == "HESTIA") %>% distinct(CAS.Number))` chemicals. An overview of the data set curation and records kept or removed throughout the operations is given in Figure \@ref(fig:fig1).  
+
+```{r fig1, results='asis', fig.cap = "Overview of the data curation process from respective number of records per database, omitted records per curation step, and the counts of acute or chronic records per endpoint.", fig.height=0.1, fig.width=0.1}
+# conditionally insert the NetworkD3 object if the document is knitted. 
+if(knitr::is_html_output()){ 
+  cat('<iframe id="Wrangle_plot" src="code/Wrangle_plot.html" style="border:none; width:100%; height:500px;"></iframe>')
+  # Since the HTML object is not a figure, the caption and referencing does not work. Here we add a blank ggpplot with defined height and width as 0.1. as a quick-fix.
+  ggplot()
+  # if this is not knitted as HTML, insert a screenshot of the NetworkD3-object as a graphic object.
+  } else knitr::include_graphics("figures/Wrangle_plot.png")
+```
+
+
+```{r Qdat-summary}
+# Make sure to be able to reference to this output!!
+flx_tbl <- flextable(HESTIA_BASE_EnviroTox_FILL %>%
+  filter(DB == "HESTIA") %>% 
+  group_by(Taxonomy.Group, Endpoint_conv, AcuteChronic) %>% 
+  summarise(n = n()) %>% 
+  pivot_wider(names_from = c(Endpoint_conv, AcuteChronic), values_from = n) %>% 
+  mutate(Sum_Species = sum(across(contains("_")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  bind_rows(summarise(
+    .,
+    across(where(is.numeric), sum, na.rm = T),
+    across(where(is.character), ~as.character("Total") ))))
+
+flx_tbl %>%  
+  set_caption("Number of records found in the HESTIA Environmental Toxicology data set by taxonomic group and endpoint") %>% 
+  flextable::fontsize(., size = 9, part = "all") %>% 
+  flextable::set_header_labels(
+    Taxonomy.Group = "Taxonomy group", 
+    EC10_Chronic = "EC10 chronic",  
+    EC50_Chronic = "EC50 chronic",  
+    NOEC_Chronic = "NOEC chronic",  
+    EC10_Acute = "EC10 acute",  
+    EC50_Acute = "EC50 acute",  
+    NOEC_Acute = "NOEC acute",  
+    Sum_Species = "Total per taxa")
+
+```
+
+As a result of selecting records unique to the Envirotox database and curating the data as previously described, `r nrow(HESTIA_BASE_EnviroTox_FILL %>% filter(DB == "EnviroTox"))` records are added to the final data set, summarized in Table \@ref(tab:Envirotox).  
+
+```{r Envirotox}
+# Make sure to be able to reference to this output!!
+Envirotox_summary_table <- flextable(HESTIA_BASE_EnviroTox_FILL %>%
+  filter(DB == "EnviroTox") %>% 
+  group_by(Taxonomy.Group, Endpoint_conv, AcuteChronic) %>% 
+  summarise(n = n()) %>% 
+  pivot_wider(names_from = c(Endpoint_conv, AcuteChronic), values_from = n) %>% 
+  mutate(Sum_Species = sum(across(contains("_")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  bind_rows(summarise(
+    .,
+    across(where(is.numeric), sum, na.rm = T),
+    across(where(is.character), ~as.character("Total") ))))
+
+Envirotox_summary_table %>% 
+  set_caption("Number of records from EnviroTox data set joined to HESTIA by taxonomic group and endpoint") %>% 
+  fontsize(., size = 10, part = "all")%>% 
+  flextable::set_header_labels(
+    Taxonomy.Group = "Taxonomy group", 
+    EC10_Chronic = "EC10 chronic",  
+    EC50_Chronic = "EC50 chronic",  
+    NOEC_Chronic = "NOEC chronic",  
+    EC10_Acute = "EC10 acute",  
+    EC50_Acute = "EC50 acute",  
+    NOEC_Acute = "NOEC acute",  
+    Sum_Species = "Total per taxa") 
+
+```
+
+
+```{r Group-summary}
+DB_overview <- HESTIA_BASE_EnviroTox_FILL %>% 
+ left_join(
+   x = ., 
+   y = FULL_PHYSCHEM, 
+   by = "CAS.Number") %>% 
+ group_by(Group) %>% 
+ summarise(
+   n_records = n(),
+   n_substances = n_distinct(CAS.Number)
+ ) %>%
+  bind_rows(summarise(
+    .,
+    across(where(is.numeric), sum, na.rm = T),
+    across(where(is.character), ~as.character("Total") )))
+```
+
+
+The HESTIA database construction was able to gather physicochemical properties required for freshwater aquatic toxicity potential characterization in USEtox for `r nrow(NEW_PHYSCHEM %>% filter(Group != "Unknown"))` chemicals. Additionally, toxicological records for the defined substance groups `r knitr::combine_words(DB_overview[1:8,] %>% pull(Group))` with `r knitr::combine_words(DB_overview[1:8,] %>% pull(n_records))` records, respectively across `r knitr::combine_words(DB_overview[1:8,] %>% pull(n_substances))` substances, respectively (Table \@ref(tab:Group-table)). This data set allows for calculations of $log(HC20_{EC10^{eq}})$-values for `r nrow(read.csv("results/HESTIA_HC20_dataset.csv") %>% filter(!is.na(HC20)))` chemicals along with the corresponding concentration-response slope factors according to Eq. 1-7, i.e the methodology in Owsianiak et al. [-@owsianiak_2022].  
+
+```{r Group-table}
+
+Group_table <- autofit(flextable(DB_overview))
+Group_table %>% 
+  set_caption("Number of toxicological use annotations identified for chemicals") %>% 
+  fontsize(., size = 9, part = "all")%>% 
+  flextable::set_header_labels(
+    Group = "Substance use category", 
+    n_records = "Number of records", 
+    n_substances = "Number of chemicals") 
+```
+
+```{r HC50-EC50}
+HESTIA_HC20 <- read.csv("results/HESTIA_HC20_dataset.csv")
+source("code/HC50_calculation_function.R")
+
+# Attaching the Physchem data to HESTIA data set and outputting a df with HC50 data
+HESTIA_HC50_calc <- HC50_calc_function(HESTIA_BASE_EnviroTox_FILL %>% left_join(x = ., y = FULL_PHYSCHEM, by = "CAS.Number"))
+```
+
+
+For the final database, the HESTIA toxicological data set with EnviroTox unique records attached, we calculate `r nrow(HESTIA_HC20 %>% filter(!is.na(HC20)))` $CRF_{HC20}$ and `r nrow(HESTIA_HC50_calc %>% filter(!is.na(avlog10_HC50_EC50)))` $av_{log}HC50_{EC50}$-values out of `r nrow(HESTIA_HC20)` chemicals.  
+
+```{r SummaryNls}
+# [explain what the qnorm() function in R code is calculating]
+# "The qnorm() function in R is used to compute the inverse cumulative distribution function (CDF) of the standard normal distribution. In other words, given a probability p, qnorm(p) returns the value x such that P(X <= x) = p, where X is a random variable following a standard normal distribution. This is useful when working with normally distributed data, as it allows you to find the value of x that corresponds to a particular probability or percentile in the distribution. For example, if you want to find the value x such that 95% of the observations in a normal distribution are below x, you can use qnorm(0.95) to calculate the corresponding x value."
+
+#data set to analyze is object `HESTIA_BASE_EnviroTox_FILL`
+
+# # load the nls function
+#  source("code/least_squares_fit_model_code.R")
+# # 
+# # # Running the operation with the HESTIA toxicity data set, generating a list object
+#  system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "YES", Plot_destination = "figures/SSD_plots"))
+# # 
+# # #Transform into a dataframe - removing the list of lists containing full nls-output
+# # nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:11])) %>%
+# #  mutate(across(c(2:10), ~ as.numeric(.x)),
+# #         CAS.Number = as.factor(CAS.Number))
+# # write.csv(nls_output_df, "results/nls_output_df.csv", row.names = F)
+
+nls_output_df <- read.csv("results/nls_output_df.csv")
+```
+
+
+When taking the weighted means approach and fit a nonlinear least-squares model to the database, `r nrow(nls_output_df %>% filter(status == "OK"))` chemicals have enough data to calculate $HC20_{weighted}$. Data availability is a major issue here, since only `r round((nrow(nls_output_df %>% filter(status == "OK"))/nrow(nls_output_df))*100, 1)`% of all chemicals have enough data to fit the nonlinear least squares model (Table \@ref(tab:Summary-nls-table)).  
+
+```{r Summary-nls-table}
+Summary_nls_table <- flextable(nls_output_df %>%
+  group_by(status) %>%
+  summarise(
+    n_records = n(),
+    min_species_per_substance = min(n_sp),
+    max_species_per_substance = max(n_sp),
+    min_taxa_per_substance = min(n_tax.grp),
+    max_taxa_per_substance = max(n_tax.grp)))
+  
+Summary_nls_table %>% 
+set_caption("Summary overview of the nonlinear least square model fit for the HESTIA ecotoxicological database") %>% 
+  fontsize(., size = 9, part = "all") %>% 
+  flextable::set_header_labels(
+    status = "Output status", 
+    n_records = "Number of records",  
+    min_species_per_substance = "Minimum number of species per chemical",  
+    max_species_per_substance = "Maximum number of species per chemical",  
+    min_taxa_per_substance = "Minimum number of taxonomic groups per chemical",  
+    max_taxa_per_substance = "Maximum number of taxonomic groups per chemical"
+)
+# write.csv(Summary_nls, "results/nls_output_summary.csv", row.names = F)
+```
+
+
+To allow for comparative assessment of uncertainties at the $logHC20_{EC10eq}$ response level across the entire data set, we define uncertainty ratio ($U_r$) (or perhaps $\sigma_r$) given by 0.5 * 2.5 to 97.5 quantiles range divided by the central value ($logHC20_{EC10eq}$) as  
+
+\begin{equation}
+U_r = \frac{0.5(Q2.5-Q97.5)}{logHC20_{EC10eq}}
+(\#eq:eq11)
+\end{equation}
+
+The 2.5% and 97.5% quantiles are unequally distanced from the central $logHC20_{EC10eq}$ value, which is why we generate an "artificial" distance between the central value and each quantile. The calculated $U_r$ tells us for the majority of data.  
+
+```{r}
+## select only substances with enough data to fit a model to
+nls_output_df_OK <- nls_output_df %>% 
+  filter(status == "OK")
+
+uncertainty_ratios <- nls_output_df_OK %>% 
+  select(CAS.Number, log_HC20EC10eq, Q2.5, Q97.5, n_recs, n_sp, n_tax.grp) %>% 
+  mutate(quantile_range = (Q2.5-Q97.5)/2, # <- average quantile range from the central value
+         uncertainty_ratio = as.numeric(abs(quantile_range)/abs(log_HC20EC10eq)))
+
+summary_uncertainty_ratios <- autofit(flextable(uncertainty_ratios %>% 
+  filter(!is.na(uncertainty_ratio)) %>% 
+  summarise_at(vars(uncertainty_ratio),
+              list(min=min, 
+                    Q1=~quantile(., probs = 0.25, na.rm = T, digits = 2),
+                    median=median, 
+                    Q3=~quantile(., probs = 0.75, na.rm = T, digits = 2),
+                    max=max))))
+
+summary_uncertainty_ratios %>% 
+  set_caption("Uncertainty ratios distribution across the data set with minimum, 25%-quantile (Q1), median, 75%-quantile(Q3) and maximum") %>% 
+  fontsize(., size = 9, part = "all")
+  
+
+### joining the uncertainty ratios with physchem data
+Uncert_analysis_df <- uncertainty_ratios %>% 
+  left_join(
+    x = ., 
+    y = FULL_PHYSCHEM %>% 
+      select(CAS.Number, MW.g.mol, pKaChemClass, Group, Substance_type), 
+    by = "CAS.Number"
+  )
+
+# Histogram detailing the distribution of relative uncertainty of substances at the HC20 response level
+histogram_uncertainty_ratio <- Uncert_analysis_df %>% 
+  ggplot(aes(uncertainty_ratio))+
+  geom_histogram(aes(), bins = 100)+
+  scale_x_log10() +
+  xlab("Uncertainty ratio (Ur) presented at log10 scale")
+
+# trimmed_uncert <- Uncert_analysis_df %>% 
+#   arrange(desc(uncertainty_ratio)) %>% 
+#   slice(20:nrow(Uncert_analysis_df))
+# trimmed_uncert %>% 
+#   ggplot(aes(uncertainty_ratio))+
+#   geom_histogram(aes(), bins = 30)+
+#   #scale_x_log10() +
+#   xlab("Ur (NOT log10 scale)")
+
+# Histogram detailing the number of records for chemicals with a modeled HC20 response level
+histogram_n_recs <- nls_output_df_OK %>% 
+  ggplot(aes(n_recs))+
+  geom_histogram(aes()) +
+  scale_x_log10()
+ 
+
+# Looking into uncertainty ratio values that are crazy big. 
+# Uncert_analysis_df %>%
+#   arrange(desc(uncertainty_ratio))
+# 
+# HESTIA_BASE_EnviroTox_FILL %>% 
+#   filter(CAS.Number == "7786-81-4")
+# 
+# EnviroTox_DB %>% 
+#   filter(CAS.Number == "59-87-0")
+#   filter(Source == "Ecotoxicol. Environ. Saf.8(2): 101-105")
+
+# This CAS number turns out very problematic with the current approach. When logHC20EC10eq value is very close to 0 the low quantile range is still much bigger than the absolute value of logHC20EQ10eq and the ratio turns out huge. 
+# CAS       logHC20EC10eq Q2.5              Q97.5             n_recs  n_sp    n_tax.grp   quantile range  Uncert-Ratio  
+# 7786-81-4	0.0002409813	0.0148134988	    -1.644669e-02	    279	    59	    9	          0.015630093	    64.86020233	
+# 541-73-1	0.0020381073	0.0096607551	    -6.241808e-02	    90	    11	    4	          0.036039417	    17.68278684
+
+```
+
+
+**The approach to produce a ratio is flawed. When logHC20EC10eq value is close to 0 the low quantile range is still much bigger than the absolute value of logHC20EQ10eq and the ratio turns out huge.** How can we change this approach?  
+```{r}
+# Boxplot of relative uncertainty in the HC20 response level for substances groups
+Boxplot_uncertainty_per_group <- Uncert_analysis_df %>% 
+  ggplot(aes(x = Group, y = uncertainty_ratio)) +
+  geom_boxplot(aes(fill = Group)) +
+  scale_y_log10() +
+  coord_flip() +
+  theme(legend.position = "none")
+```
+
+When exploring the relationship between the number of records or the molecular weight of substances to the uncertainty ratio of chemicals we find, unsurprisingly, that the more data points each nonlinear least squares model are modeled after, the lower the uncertainty is for corresponding $log(HC20_{EC10^{eq}})$ point (Figure \@ref(fig:uncert)).  
+
+```{r uncert, fig.dim = c(12, 6), fig.cap = "Uncertainty analysis figures (TEST CAPTION)"}
+n_rect_to_uncertainty <- Uncert_analysis_df %>% 
+  ggplot(aes(x = n_recs, y = uncertainty_ratio)) +
+  geom_point(aes(color = Group), alpha = 0.5) +
+  geom_smooth()+
+  annotation_logticks() +
+  scale_x_log10() +
+  scale_y_log10(breaks = 10^(-2:3), labels = scales::number_format(accuracy = 0.01)) +
+  xlab("Number of records per chemical (log-scale)") +
+  ylab("Uncertainty ratio (log-scale)") +
+  #labs(tag = "a)") +
+  theme_bw() +
+  theme(legend.position = "none") #+ 
+  #ggtitle("Relationship between the number of records and \nuncertainty ratio for different groups of chemicals")
+
+n_rect_to_uncertainty
+
+# # Uncertainty ratio variability as a result of molecular weight  
+# mol_w_to_uncertainty <- Uncert_analysis_df %>% 
+#   ggplot(aes(x = MW.g.mol, y = uncertainty_ratio)) +
+#   geom_point(aes(color = Group), alpha = 0.5) +
+#   #geom_smooth()+
+#   scale_x_log10() +
+#   scale_y_log10(labels = scales::number_format(accuracy = 1)) +
+#   annotation_logticks() +
+#   xlab("Molecular weight") +
+#   ylab(element_blank()) +
+#   labs(tag = "b)") +
+#   theme_bw() +
+#   theme(legend.position = "none") #+
+#   #ggtitle("Exploring the relationship between the molecular weight and \nuncertainty ratio for different groups of chemicals")
+# 
+# grid.arrange(n_rect_to_uncertainty, mol_w_to_uncertainty, ncol=2)
+
+# Lets run a linear model to test the relationship between n_recs and uncertainty ratio:
+# n_recs_x_uncertainty_lm <- lm(n_recs~uncertainty_ratio, Uncert_analysis_df, na.action = na.exclude)
+# summary(n_recs_x_uncertainty_lm)
+
+```
+
+### Comparison of ecotoxicological effects based on species sensitivity distributions (SSD) to the weighted means distribution{-}
+By fitting a linear model to the two data sets with $log(HC20_{EC10^{eq}})$ values based on weighted means generated by the NLS model and the standard $log(HC20_{EC10^{eq}})$ values calculated using the methodology by Owsianiak et al. [-@owsianiak_2022], we can establish a very good fit for the two datasets with close to 94 % of the variability of weighted means data is explained by the standard SSD calculations, Figure \@ref(fig:SSDs) **a)**. We plot the absolute differences between the two methods in a histogram to visualize the differences (**More explanation if we deem this comparison to be relevant**), referred to as Figure \@ref(fig:SSDs) **b)**.  
+
+```{r SSDs, fig.dim = c(12, 6), fig.cap = "Test caption and explanation"}
+# comparison - try to look into a lm() as a comparison. scatterplot/q-q plot and look for patterns if the two methods are comparable or how far off either method is from each other.
+SSD_weighted_means_comparison <- left_join(
+  x = nls_output_df %>% 
+    filter(status == "OK") %>% 
+    select(CAS.Number, log_HC20EC10eq, n_recs),
+  y = HESTIA_HC20 %>% 
+    select(CAS.Number, HC20EC10eq),
+  by = "CAS.Number") %>% 
+  rename(Weighted_HC20EC10eq = log_HC20EC10eq,
+         SSD_HC20EC10eq = HC20EC10eq) %>% 
+  mutate(abs_diff = abs(Weighted_HC20EC10eq-SSD_HC20EC10eq))
+
+lm_SSD_weight_means <- lm(Weighted_HC20EC10eq ~ SSD_HC20EC10eq, SSD_weighted_means_comparison)
+SSD_lm_sum <- summary(lm_SSD_weight_means)
+SSD_lm_r.square <- summary(lm_SSD_weight_means)$r.squared
+
+# it is pretty easy to visualize a good fit of data. Mind that the data are presented as logarithmic values.
+# there is a clear correlation between the two approaches, no data rich chemicals are deviating, but rather data with ~10 records might deviate from the line. 
+SSD_compare <- SSD_weighted_means_comparison %>% 
+  ggplot(aes(x = SSD_HC20EC10eq, y = Weighted_HC20EC10eq))+
+  geom_point(aes(color = log10(n_recs)), alpha = 1) +
+  geom_text(aes(x = -2, y = 3), label = paste("R^2 =", round(SSD_lm_r.square, 4))) +
+  scale_colour_gradient(low = "grey", high = "black") +
+  labs(color = "(log10)n records", tag = "a)") +
+  theme(legend.position = "top")
+
+# These differences follow normal distribution to a fair extent.
+SSD_hist <- SSD_weighted_means_comparison %>% 
+  ggplot(aes(fill = n_recs)) +
+  geom_histogram(aes(x = abs_diff, fill = n_recs)) +
+  scale_x_log10() +
+  xlab("Absolute difference between unweighted\n and weighted logHC20EC10eq values (x = log10 scale)") +
+  labs(tag = "b)")
+
+grid.arrange(SSD_compare, SSD_hist, ncol=2)
+```
+  
+
+### Investigating the applicability of QSAR models to estimate toxicological effect data  
+
+```{r QSAR-lm-chunk}
+
+CAS_SMILES_list <- read_tsv("data/excel_references/CAS_CID_list_final.txt", col_names = F)
+names(CAS_SMILES_list) <- c("CAS.Number", "SMILES")
+CAS_SMILES_list_no_na <- CAS_SMILES_list %>% 
+  filter(!is.na(SMILES))
+
+QSAR_emp_abs_diff_df <- read.csv("data/excel_references/QSAR_output/QSAR_emp_abs_diff_df.csv")
+# fitting a linear model for the VEGA-empirical comparisons on HQ data
+# 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+  # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+# shapiro.test(QSAR_emp_abs_diff_df$logHC20EC10eq_VEGA)
+# shapiro.test(QSAR_emp_abs_diff_df$HC20EC10eq)
+# qqplot(QSAR_emp_abs_diff_df$HC20EC10eq, QSAR_emp_abs_diff_df$logHC20EC10eq_VEGA)
+# correlation_test <- cor.test(QSAR_emp_abs_diff_df$HC20EC10eq, QSAR_emp_abs_diff_df$logHC20EC10eq_VEGA)
+
+# 2. Building a model on training data  
+# This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+lm_model <- lm(HC20EC10eq ~ logHC20EC10eq_VEGA, data = QSAR_emp_abs_diff_df)
+# 3. Assessing the model’s fit
+# RSE can be found in the summary of a model.
+   #summary(lm_model)
+
+# 4. Analyzing model results.
+# This finds the R Squared value of a linear regression model named model.
+r_value <- summary(lm_model)$r.squared
+ # summary(lm_model)$coefficients
+```
+
+From the `r nrow(CAS_SMILES_list_no_na)` chemicals that could be matched to a SMILES annotation, which means mono-constituent chemicals, we see a generally low quality scoring for most chemicals, with KNN acute LC50 fish toxicity model producing the most good quality matches contrasted by the NIC acute LC50 fish toxicity model which produced no higher quality matches, outside of the chemicals within the model's training set. A summarized overview of the QSAR estimations quality report in shown in Table \@ref(tab:QSARModels).  
+
+```{r QSARModels}
+# QSAR comparison to Empirical data df
+QSAR_emp_abs_diff_df <-  read.csv("data/excel_references/QSAR_output/QSAR_emp_abs_diff_df.csv")
+
+median_diff_value <- QSAR_emp_abs_diff_df %>% summarise(median = median(abs_diff, na.rm = T))
+
+# QSAR quality summary table
+QSAR_table <- autofit(flextable(read.csv("data/excel_references/QSAR_output/VEGA_summary.csv", header = T) %>% 
+                                  mutate(QSAR_model = gsub("_eval", "", QSAR_model),
+                                         QSAR_model = gsub("_", " ", QSAR_model)) %>% 
+                                  rename(`QSAR model` = QSAR_model)))
+QSAR_table %>%  
+  set_caption("Summary of the QSAR models applied to the HESTIA toxicological data set, with counts of model quality per QSAR model. 'ERROR'-column implies either ERROR-reported quality score, estimates are missing, or estimate = 0 mg/L") %>% 
+  fontsize(., size = 9, part = "all")
+
+```
+
+
+Only a small subset of chemicals are eligible to include for $log(HC20_{EC10^{eq}})$ calculations as a "high-quality" subset with `r nrow(QSAR_emp_abs_diff_df)` records where HC20-values are based on only "EXPERIMENTAL", "GOOD", and "MODERATE" quality are selected for analysis. When fitting a linear model to the calculated $log(HC20_{EC10^{eq}})$-values based on QSAR estimations ($log(HC20_{EC10^{eq}_{QSAR}})$) and $log(HC20_{EC10^{eq}})$-values based on empirical records ($log(HC20_{EC10^{eq}_{emp}})$) we see a strong relationship between the two data sets, but only `r round(r_value, 3)` % of the variability of $log(HC20_{EC10^{eq}_{QSAR}})$ is explained by $log(HC20_{EC10^{eq}_{emp}})$ (Figure \@ref(fig:QSAREmp) **a)**). Worth noting is the severe under-estimation in toxicity for the substances deemed most toxic from empirical data, highlighted in the red circle in Figure \@ref(fig:QSAREmp) **a)**, where toxicity is underestimated by several orders of magnitude in the QSAR estimations. Figure \@ref(fig:QSAREmp) **b)** shows the distribution of relative difference between QSAR estimations to empirical data, presented on a log scale where the quality of all available predictions are measured as a "QSAR to empirical data ratio" ($R_{QSAR/Emp}$) between $log(HC20_{EC10^{eq}_{QSAR}})$ and the $log(HC20_{EC10^{eq}_{emp}})$ as  
+
+\begin{equation}
+\frac{logHC20EC10eq_{QSAR}}{logHC20EC10eq_{emp}} = R_{QSAR/Emp}
+(\#eq:eq12)
+\end{equation}
+
+  
+```{r QSAREmp, fig.dim = c(12, 6), fig.cap = "(TEST CAPTION)"}
+# Comparing data points of CRF_all & CRF_vega for HQ_data
+QSAR_plot_HQ <- QSAR_emp_abs_diff_df %>% 
+    ggplot(aes(x = HC20EC10eq, y = logHC20EC10eq_VEGA)) +
+    geom_point(size = 1) +
+    geom_smooth(method = "lm", color ="blue", size = 1) +
+    geom_text(aes(x = 2, y = 4), label = paste("R^2 =", round(r_value, 4))) +
+    #geom_abline(intercept = 0, slope = 1, color = "blue") +
+    #scale_y_log10() +
+    #scale_x_log10() +
+    geom_circle(aes(x0 = -5, y0 = -1, r = 1.5), color = "red", fill = NA) +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+    xlab("logHC20EC10eq-values based on empirical records") +
+    ylab("logHC20EC10eq-values based on estimated QSAR data") +
+    labs(tag = "a)") +
+    ggtitle(paste("Comparison between empirical data to (HQ) QSAR estimations\n of logHC20EC10eq-values", ", ", nrow(QSAR_emp_abs_diff_df), " chemicals", sep = ""))
+
+# ggsave("figures/QSAR_comparison_HQ.png", QSAR_plot_HQ, dpi = 300)
+
+hist_abs_diff <- QSAR_emp_abs_diff_df %>%
+  ggplot(aes(x = log_abs_diff))+
+  geom_histogram() +
+  xlab("QSAR estimated to empirical data ratio") +
+  labs(tag = "b)")
+  # scale_y_log10()+
+  # scale_x_log10()
+#   
+  # slice(QSAR_emp_abs_diff_df %>%
+  #   arrange(HC20EC10eq), 1:6) #%>%
+  #   pull(CAS.Number)
+
+grid.arrange(QSAR_plot_HQ, hist_abs_diff, ncol=2)
+```
+
+
+```{r taxonomyDiscussion}
+# Taxonomy discussion
+Species_list <- read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") %>% 
+    distinct(Test.organisms..species.) 
+
+# Separating the Species_list into columns with binomial species names, and "non-binomial" annotations    
+main_taxa_df <- Species_list %>% 
+  separate(col = Test.organisms..species., into = "species", sep = " sp\\.| ssp\\.| var\\.| x ", remove = F, convert = F) %>% 
+  mutate(non_binom = case_when(!grepl("\\s", species) ~ species),
+         species = case_when(!grepl("\\s", species) ~ as.character(NA), TRUE ~ species))
+
+```
+ 
+
+### Discussion  
+By gathering physicochemical and ecotoxicological effect data for a set of `r nrow(HESTIA_chem_list_slim)` chemicals through querying OECD QSAR Toolbox software, we have been able to calculate concentration-response slope factors at the 20% response level ($CRF_{HC20}$) for `r nrow(HESTIA_HC20 %>% filter(!is.na(HC20)))` chemicals, assess the uncertainty at the $log(HC20_{EC10^{eq}})$ point of the SSD curve for `r nrow(nls_output_df_OK)` chemicals and gather `r nrow(FULL_PHYSCHEM %>% filter(CanonicalSMILES != ""))` physicochemical records required for characterization of chemicals with USEtox 2.1 methodology. The present data set is not a fully comprehensive database for all potentially harmful substances from open sources, 16797 substances is only a small part of the full spectrum of man-made substances released into the environment and within this subset of data toxicological effect data are available for `r round(100*(nrow(read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") %>% distinct(CAS.Number))/nrow(HESTIA_chem_list_slim)), 0)`% of substances queried.  More substances need to be tested, across a more diverse set of species than the standard *Danio rerio*, *Daphnia magna*, and *Pseudokirchinella subcapitata* for the current characterization methodology to be able to include a larger set of potentially harmful substances.    
+
+Complementing toxicological testing of animals with *in silico* simulations to derive quantitative structure-activity relationship estimates for chemical toxicity is a desirable approach for improving our understanding of the full range of impacts caused by anthropogenic activities. This as toxicological tests of chemicals are time consuming and expensive, while new chemicals are constantly introduced. Moreover, ethical aspects of exposing animals to potentially harmful chemicals also need to be considered. These QSAR models, however, are only as good as the training data and results from the current work show that when applying fifteen different QSAR models to the HESTIA inventory chemicals, many are too dissimilar to the models' training data sets and either fail to generate estimations or are deemed as low quality estimations. 
+
+Even more worrisome is that estimations of experimental, good and moderate quality are still not providing HC20-values within a reasonable error margin. When comparing QSAR HC20-values with HC20-values based on empirical data across `r nrow(QSAR_emp_abs_diff_df)` chemicals, the estimated HC20-values deviate substantially from the corresponding HC20-values derived from empirical data with errors up to `r formatC(QSAR_emp_abs_diff_df[1,7], format = "e", digits = 2)` $PAF\text{ } m^3/kg_{bioavailable}$ at the largest extreme, while the median difference is `r round(median_diff_value[1,1], 2)` $PAF\text{ } m^3/kg_{bioavailable}$. More toxicological effect data and data for additional chemicals are available (e.g in the REACH dossier) and gathering of data for *any other* chemicals using OECD QSAR Toolbox could be a straightforward task, with the here available R-scripts adapted for reading and wrangling data structured as OECD QSAR Toolbox-output.
+
+**Considerations of taxonomy:** Averaging across species can be problematic for records where taxonomic details are given at levels above species. $Eq$ 5 calculates the mean of all per-species EC10eq effect values ($\hat\mu$) and whether using the weighted means-method or the standard non-weighted method to calculate $log(HC20_{EC10^{eq}})$, records defined at a higher taxonomic rank than species will influence the calculation by representing an artificial species, for example *Daphnia sp.* will count as one species alongside *D. magna*. Such above-species-level taxonomic identifiers have been removed from this data set resulting in the exclusion of `r nrow(main_taxa_df %>% filter(!is.na(non_binom)))` names (not counting common names or erroneous names). This issue seem to be overlooked, as these taxonomic ids at higher level **are present in both @connors_2019 and @sala_2022**. Since data scarcity is an issue this poses an avenue for future analysis when testing how robust a methodology of averaging records across genus-level instead of species-level. Such an approach could produce more data-rich averaging calculations, but at the cost of fewer data points to construct an SSD-curve from. 
+
+The discussion part on uncertainties in the data set.  
+SSD curves with uncertainty intervals at the $log(HC20_{EC10^{eq}})$ point can be created for about `r nrow(nls_output_df %>% filter(status== "OK"))` of the chemicals within this database, while $log(HC20_{EC10^{eq}})$ data for `r nrow(read.csv("results/HESTIA_HC20_dataset.csv") %>% filter(!is.na(HC20)))` chemicals have been calculated using the methodology of Owsianiak et al. [-@owsianiak_2022]. Within every species-specific data point that builds the SSD curve are uncertainties that have so far not been assessed. as a starting point, every toxicological effect value is generated from multiple data points and is presented as an average effect, at an endpoint, per unit of measurement. Throughout this study, each effect value has also been extrapolated from original endpoint to EC10eq using extrapolation factors that comes with CI/uncertainties as well and downstream calculations produce average species-specific averages with, at some points substantial ranges, more uncertainties.  
+
+ - Acknowledge that we apply weighted means to the SSD curve calculations where we fit the nls-model.  
+ - Compare to the methodology applied in [@aurisano_probabilistic_2023]  
+ - Few chemicals have a rich data from multiple tests per species.  
+ - We need more data - for characterization purposes toxicological testing needs to be performed across more species from a more diverse set of taxonomic groups. Especially since more data == higher accuracy of the predicted CRF value.  
+
+**Conclusions**  
+ - We have been able to analyze the uncertainties in the HC20 working point for a fair number of chemicals (`r nrow(nls_output_df %>% filter(status== "OK"))`), yet only fewer than 10% of the original data set with 16797 chemicals.    
+ - Produce a set of up-to-date characterization factors for use in HESTIA.earth.
+
+\newpage
+### References

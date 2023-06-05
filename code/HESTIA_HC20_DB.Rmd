@@ -1,0 +1,801 @@
+---
+title: "HESTIA_Database_construction"
+author: "Oskar"
+date: "`r Sys.Date()`"
+output: html_document
+bibliography: references.bib
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(message = F, warning = F, echo = F)
+# These libraries are used for analysis
+   #install.packages("webchem")
+   #install.packages("taxize")   # <- Installing the "taxize" library http://dx.doi.org/10.5281/zenodo.7097
+   #install.packages("networkD3") <- For the Sankey flow chart visualization
+   #install.packages("goeveg") # <- for simple coefficient of Variation calculation at summary of data
+    library(rmarkdown)
+    library(tidyverse)
+    library(webchem)
+    library(xlsx)
+    library(readr)
+    library(kableExtra)
+    library(taxize)
+    library(ggpubr)
+    library(networkD3)
+    library(htmlwidgets)
+```
+
+# HESTIA ecotoxicological database 
+\vspace{40mm}
+
+Oskar Nyberg$^{1,\dagger}$, Reinout Heijungs$^{2}$, Patrik Henriksson$^{3,4,5}$
+
+\vspace{20mm}
+${1}$ Department of Ecology, Environment and Plant Sciences,  Svante Arrhenius väg 20 A, Stockholm University
+${2}$ Leiden University
+${3}$ Stockholm Resilience Center, XXX, Stockholm University
+${4}$ WorldFish Center
+${5}$ Beijer Institute
+
+${\dagger}$ Corresponding author:[oskar.nyberg@su.se](mailto:oskar.nyberg@su.se)
+
+
+\newpage
+### Abstract
+We calculate characterization factors for chemicals with potential negative environmental impact by construct a ecotoxicological database all openly available 
+
+\newpage
+
+# HESTIA Database construction.
+The starting point for constructing a database with ecotoxicological data to calculate characterization factors suited for the online life cycle assessment (LCA) application HESTIA ([http://HESTIA.earth](http://hestia.earth)) is the substance inventory acquired as the .csv file `Pesticide.AI`. This is a list of 16797 potentially harmful substances based on the United States Environmental Protection Agency's Substance Registry Services (USEPA SRS) inventory. (Probably). 
+
+The first operation is to import this list of substances and select CAS registry numbers (CASRN) and substance names, as well as reformatting CASRN format from `CAS-XXXX-XX-X` to `XXXX-XX-X`. Then, we use the NCBI PubChem project to match CASRN and substance names to SMILES configuration with the intermediate step of acquiring PubChem substance IDs using the R package [Webchem](https://docs.ropensci.org/webchem/) @Stirling (Create functioning reference)
+```{r}
+# This step takes place in the `code/Translating_CAS_to_SMILES_via_PubChem.R`-file
+# Output from this operation creates three files: a .csv doc "data/excel_references/CAS_CID_list_final.csv", a .txt file containing CASRN-SMILES matches: "data/excel_references/CAS_CID_list_final.txt", as well as five subsets from the previous .txt file named "data/excel_references/cas_smiles_list[XXXX-XXXXk].txt"
+```
+
+Based off of the CASRN-SMILES matches we take three actions: 1) query substance use info, to annotate use-types for each substance respectively `code/Pesticide_annotations.Rmd`, 2) query the OECD QSAR Toolbox [REF] for physicochemical properties for substances and subsequently read and wrangle data for a USEtox-friendly format `Physchem_read_wrangle_function`, and 3) query the OECD QSAR Toolbox [REF] for substances' aquatic ecotoxicological records. 
+```{r Physchem info, echo=FALSE}
+# Physchem wrangle function
+source("../code/Physchem_read_wrangle_function.R")
+# Processing and wrangling the raw data through function loaded above
+Physchem_HESTIA <- Physchem_read_wrangle_function(read.csv("../data/QSAR_Toolbox_physchem_data_2023-03-24_RAW.csv", header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE))
+
+# Loading the slim version of the Pesticide annotations data for substance use properties and merge this here.
+HESTIA_chem_list_slim <- read.csv("../results/HESTIA_chem_list_slim.csv")
+
+NEW_PHYSCHEM <- left_join(
+  x = Physchem_HESTIA, 
+  y = HESTIA_chem_list_slim, 
+  by = "CAS.Number"
+) %>% 
+  select(CAS.Number, CanonicalSMILES, PesticideAI_name, 2:31)
+
+```
+
+
+To generate EC20^EC10eq effect endpoints for chemicals i need data from  EC10, EC50 as well as LC and NOEC data.
+for details on the treatment of input CAS numbers, how all available SMILES configurations were gathered and thereafter exported as 4k row long subsets.
+This information on CAS and SMILES per substance was used as input into OECD QSAR Toolbox software where two distinct operations took place, 1) query for toxicological effect data, and 
+Acquired metadata data gives an abundance of test information across ~ 450 columns, although the majority of these are redundant for the current purpose. Wrangling of the raw OECD QSAR Toolbox output takes place in `data/raw_data_read_and_wrangle.R` and is subsequently imported as a data frame for treatment and filtering. 
+In several steps of these filtering operations, physicochemical data is required, which is available for `r nrow(NEW_PHYSCHEM)``
+Code loaded from file "Physicochemical_properties.Rmd".
+Reading it here, because I need some of the physicochemical data and the pesticide annotations below (for pesticides, ACR annotations are 2.2, not standard 2, according to USEtox manual!)
+
+## Raw data wrangling
+Importing, filtering and wrangling the ecotoxicological effect data from QSAR data output, including relevant metadata that can act as quality control. In this operation the OECD QSAR Toolbox output gets read in and a first step of harmonizing the data set. The files have different lengths and number of columns, which forces me to select a set of defined columns. Additionally, duplicates and completely empty records have been removed to have a neater data set to work with.
+
+```{r reading TOX data}
+# Reading in the data input ready for wrangling. "Pre-filtered" implying that the data has been 
+# Dependency -> "../data/raw_data_read_and_wrangle.R"
+HESTIA_HC20_DB <- read.csv("../data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") %>% 
+  select(-SMILES) %>% 
+  mutate(Year = coalesce(Year, Publication.year)) %>% 
+  select(-Publication.year)
+
+```
+
+
+## Which endpoints to include.
+Saouter et al.(2022) defined 6 different conversion coefficients for chronic/acute EC50 -> chronic EC10 etc.
+Leo Posthuma used several more, all ECx (1-20), records with the endpoints NOEC, LOEC, maximum acceptable toxicant concentration, EC0, EC5, EC10, and EC20 are marked as “chronic NOEC”, records with (EC) or (LC) endpoint ranging from 30 to 70% are marked as “acute EC50”
+Acute/chronic definitions are available in Posthuma et al., 2019 (Table 1) and Aurisano et al., 2019 for algae, bacteria, unicellular animals, crustaceans, fish, molluscs/worms/etc. or in Aurisano
+Harmonization and aggregation of endpoints  
+[Aurisano et al., 2019, p. 2570]  
+EC0, EL0, IC0, LC0, NOAEC, NOEC, NOEbC, NOErC, NOEL grouped into NOEC; EC10, IC10, LC10, LOEC grouped into EC10eq; EC50, EbC50, EbL50, ErC50, ErL50, IC50, LC50 grouped into EC50.
+“We combined LOEC and EC10 for deriving extrapolation factors based on high uncertainties in the low range of species sensitivity distributions, rendering it difficult to treat LOEC and EC10 as separate metrics in statistical analyses (Iwasaki et al. 2015; King et al. 2017).” [Aurisano et al., 2019, p. 2571]
+
+```{r Endpoint selection}
+## Applying conversions for Endpoints
+source("../code/EC10eq_conversion_functions.R")
+
+HESTIA_HC20_DB_endpoint_conversions <- HESTIA_HC20_DB %>%
+  mutate(Endpoint_conv = mapply(endpoint_conv_function, Endpoint)) 
+
+```
+
+### Values reported in range
+Effect concentration qualifiers 
+Based on similar work by Saouter et al., 2019, in cases where no mean value is reported, the following rules will be applied:
+“A large majority of the results have a numeric value in the low range with a qualifier =, ca., >=, or >. In contrast, only a few tests have their results expressed in the higher ranges (5862 test results). The following selections were made to maximize the use of available data:   
+1. When there is a lower range value with the descriptors ‘>=, ca., or empty’, the lowest value is selected. If, within this group, a test has also a higher value, this higher value is ignored.  
+2. All lower range values described as ‘>’ are ignored (n = 39602), unless the higher value is described as ‘=<’ (n= 80 observations). In case of NOEC > than, the value was kept since it is still representing a concentration with no observed effect.  
+3. All higher values described as ‘< than’ are ignored, unless the lower range value is described as ‘>=’. Then the lower value is used.  
+4. When a lower range value is missing (0 or blank) and a higher value is available described as ‘<=’, the higher value is used.  
+5. When a lower value is described as >= and the higher value is described as <=, the lowest value is used.  
+6. Values expressed as ‘<’ are excluded (4397 test results).” [Saouter et al., 2018, p. 47]
+
+```{r}
+HESTIA_HC20_DB_qualifier_filter <- HESTIA_HC20_DB_endpoint_conversions %>% 
+  # Qualifiers, step one. in Saouter et al., 2018 "When there is a lower range value with the descriptors ‘>=, ca., or empty’, the lowest value is selected. If, within this group, a test has also a higher value, this higher value is ignored. "case_when(is.na(Value.MeanValue)
+  mutate(
+    Value.MeanValue = case_when(is.na(Value.MeanValue) ~
+      case_when(
+        # If a qualifyer is stated as "ca." or "larger than" 
+        Value.MinQualifier %in% c("ca.", ">=") ~ Value.MinValue,
+        # When there is a lower range value with the descriptors "empty", the lowest value is selected
+        !is.na(Value.MeanValue) & is.na(Value.MinQualifier) & !is.na(Value.MinValue) ~ Value.MinValue, 
+        # Mean value is NOT empty, but the qualifier is empty => The original value is selected (Most data!)
+        !is.na(Value.MeanValue) & is.na(Value.MinQualifier) ~ Value.MeanValue,
+        # Lower range qualifier is empty => lowest value is selected
+        is.na(Value.MeanValue) & is.na(Value.MinQualifier) ~ Value.MinValue, 
+          # In case of NOEC > than, the value was kept since it is still representing a concentration with no observed effect."  
+          # Qualifiers, step Two. "All lower range values described as ‘>’ are ignored, unless the higher value is described as ‘=<’. 
+        Value.MinQualifier == ">" ~ case_when(
+            Endpoint_conv == "NOEC" ~ Value.MinValue,
+            Value.MaxQualifier == "<="  ~ Value.MinValue,
+            TRUE ~ "ignore"),
+        # Qualifiers, step 3. All higher values described as ‘< than’ are ignored, unless the lower range value is described as ‘>=’. Then the lower value is used.
+        Value.MaxQualifier == "<" ~ case_when(
+          Value.MinQualifier == ">=" ~ Value.MinValue, TRUE ~ "ignore"),
+        # Qualifiers, step 4. When a lower range value is missing (0 or blank) and a higher value is available described as ‘<=’, the higher value is used. 
+          Value.MinValue = 0 | is.na(Value.MinValue) & Value.MaxQualifier == "<=" ~ Value.MaxValue,
+        # Qualifiers, step 5. When a lower value is described as >= and the higher value is described as <=, the lowest value is used. 
+          Value.MinQualifier == ">=" & Value.MaxQualifier == "<="  ~ Value.MinValue,
+        # Qualifiers, step 5. Values expressed as ‘<’ are excluded.
+          Value.MinQualifier == "<" ~ "ignore", TRUE ~ Value.MeanValue),
+      TRUE ~ Value.MeanValue
+      )
+    ) %>% 
+    filter(is.na(Value.MeanValue)|!Value.MeanValue == "ignore") # Removing all data with where qualifier filter is set to "ignore"
+
+# Creating a summary table for value.qualifiers reported.
+HESTIA_HC20_DB_endpoint_conversions %>%
+  group_by(Value.Qualifier) %>% 
+  summarise(n_val.qualifier = n()) %>% 
+    left_join(
+      x = .,
+      y = HESTIA_HC20_DB_endpoint_conversions %>%
+            group_by(Value.MinQualifier) %>% 
+            summarise(n_min.qualifier = n()) %>% 
+            rename(Value.Qualifier = Value.MinQualifier),
+      by = "Value.Qualifier"
+        ) %>% 
+    left_join(
+      x = .,
+      y = HESTIA_HC20_DB_endpoint_conversions %>%
+            group_by(Value.MaxQualifier) %>% 
+            summarise(n_max.qualifier = n()) %>% 
+            rename(Value.Qualifier = Value.MaxQualifier),
+      by = "Value.Qualifier"
+        ) %>% 
+  write.csv(., "../data/excel_references/summary table for value.qualifiers.csv", row.names = F)
+```
+
+
+## Additional quality filter
+Some data have annotations where Control.Type is annotated as "inconclusive" or "unsatisfactory".
+Additional filtering operations dependent on outlier inspection an identification of "odd" data
+```{r}
+HESTIA_HC20_DB_Control.Type_filter <- HESTIA_HC20_DB_qualifier_filter %>% 
+  filter(
+    # Removing data based on insufficient/unsatisfactory controls
+    !Control.type %in% c("Insufficient", "Unsatisfactory"),
+    # Removing QSAR in title
+    !grepl("QSAR", x = Title, ignore.case = T),
+    # Removing bioassay in title
+    !grepl("bioassay", x = Title, ignore.case = T),
+    # Removing Quantitative in title
+    !grepl("Quantitative", x = Title, ignore.case = T),
+    # Removing QSAR in experimental design annotation
+    !grepl("QSAR", x = Experimental.design, ignore.case = T),
+    # Removing bioassay in experimental design annotation
+    !grepl("bioassay", x = Experimental.design, ignore.case = T),
+    # Removing QSAR study
+    !grepl("Assessment of Aquatic Experimental Versus Predicted and Extrapolated Chronic Toxicity Data of Four Structural Analogues", Title),
+    # Removing QSAR study
+    !grepl("Effects of Chlorpyrifos, Carbendazim, and Linuron on the Ecology of a Small Indoor Aquatic Microcosm", Title),
+    # Removing QSAR study
+    !grepl("Altenburger,R., H. Walter, and M. Grote", Title),
+    # Removing QSAR study
+    !grepl("PREDICTING MODES OF TOXIC ACTION FROM CHEMICAL STRUCTURE: ACUTE TOXICITY IN THE FATHEAD MINNOW", Title),
+    # Data entered incorrectly, mixing cardiovascular injections with soaking solutions, also, data reported as minimum non-lethal concentration is entered as EC10. Remove all of these.
+    !grepl("Human Cardiotoxic Drugs Delivered by Soaking and Microinjection Induce Cardiovascular Toxicity in Zebrafish", Title),
+    # Data on species-specific toxicity entered incorrectly, attributing D magna toxicity to S. capricirnutum.
+    !grepl("A Multi-Battery Toxicity Investigation on Fungicides", Title),
+    # Bioassay test-results
+    !grepl("Rainbow Trout Larvae Compared with Daphnia", Title),
+    # No source available, yet substance 107-21-1 from this study causes an extreme outlier
+    !grepl("GERISH", Title),
+    # 95% CI has one report of negative conventrations, which the qualifyer filter above selects. removing all data
+    !grepl("Acute Effects of Binary Mixtures of Imidacloprid and Tebuconazole on 4 Freshwater Invertebrates", Title),
+    # 95% CI has one report of negative conventrations, which the qualifyer filter above selects. removing all data
+    !grepl("Relative Chronic Sensitivity of Neonicotinoid Insecticides to Ceriodaphnia dubia and Daphnia magna", Title),
+    #Presents ridiculously low effect concentrations from micrplastic study on D. rerio embryos concentrations reported are used as an effect test result! incorrect entry into database
+    !grepl("Multi-Laboratory Hazard Assessment of Contaminated Microplastic Particles by Means of Enhanced Fish Embryo Test with the Zebrafish", Title) 
+  )
+ 
+```
+
+## Test media (Freshwater & culture media filter)
+Assuming tests without defined media type is "freshwater". Especially considering the majority of organisms are Daphnia magna, Pseudokirchneriella subcapitata, Pimephales promelas and Oryzias latipes (after inspection), just as Saouter 2018.
+```{r}
+HESTIA_HC20_DB_water_filter <- HESTIA_HC20_DB_Control.Type_filter %>% 
+  mutate(
+    Media.type = gsub(" ", "", Media.type),
+    Media.type = coalesce(
+      Media.type, Water.type),
+    Media.type = case_when(
+      is.na(Media.type) ~ "Freshwater", 
+      TRUE ~ Media.type)
+    ) %>% 
+  # Filtering out all "saltwater" and "no substrate" tests. 
+  filter(!Media.type %in% c("Saltwater", "Nosubstrate")
+         ) 
+  
+```
+
+## Effect Criterion selection 
+Posthuma et al., 2019, selected few effect criterion where: 
+"... records with the endpoints NOEC, lowest-observed-effect concentration, maximum acceptable toxicant concentration, EC0, EC5, EC10, and EC20 are marked as “chronic NOEC” when they have an appropriate taxon-dependent test duration (see Table 1) and population-relevant effect criterion (e.g., reproduction, growth, population growth, and development, next to mortality and immobility); and records with a sublethal (EC) or lethal endpoint ranging from 30 to 70% are marked as “acute EC50” when they have an appropriate taxon-dependent test duration (see Table 1) and effect criterion (e.g., mortality and immobility).
+However, Posthuma et al. also clustered NOEC, LOEC, EC 0-20 into one "Chronic NOEC"-category and all EC 30-70 into one Acute EC50 category. 
+
+
+We decide to select endpoint criterions based on expert consultation with dr. Andreu Rico
+```{r}
+HESTIA_HC20_DB_effect_crit_filter <- HESTIA_HC20_DB_water_filter %>% 
+filter(Effect %in% c(
+  "Behavior", "Growth", "Intoxication", "Population", "Reproduction", 
+  "Acute", "Cell(s)", "Growth Rate", "Mortality", "Feeding Behavior",
+  "Biomass", "Body Weight", "Chronic", "Frond Number", "Development", 
+  "Mobility","Seedling Emergence", "Immobilisation", "Behaviour" 
+  ) )
+
+HESTIA_HC20_DB_effect_crit_filter %>% 
+  group_by(Effect) %>% 
+  summarise(n = n()) %>% 
+  arrange(desc(n)) %>% 
+  write.csv(., "../data/excel_references/summary_table_effect_crit.csv", row.names = F)
+
+```
+
+## Taxonomy wrangling
+
+List of taxonomy descriptions is finalized. (code available in "code/Taxonomy_wrangling.Rmd")
+Saved as file: "Final_Taxonomy_dataset.xlsx"
+This contains 3503 species taxa-annotations with taxonomic group classifications as well.
+Importing taxonomic descriptions and merging with the main data set
+
+@Taxize is used (and have been added to the references.bib)
+Citing taxize: `taxize_cite(fxn='taxize')`
+
+```{r, warning=FALSE}
+
+# Removing poor taxonomic descriptions and Species data annotated at higher taxonomic level. 
+HESTIA_HC20_DB_taxonomy_filter <-  HESTIA_HC20_DB_effect_crit_filter %>% 
+  left_join(x = .,
+  # Joining with the (in part) manually curated taxonomy list for the HESTIA DB
+    read.csv("../data/Taxonomy/Species_taxonomy.csv"), 
+    by = "Test.organisms..species.") %>%
+  filter(!is.na(Species),
+         !is.na(Taxonomy.Group))
+
+# Overview of the filtered out species, or genus and higher taxonomy rather...
+# HESTIA_HC20_DB_effect_crit_filter %>% 
+#   left_join(x = .,
+#   # Joining with the (in part) manually curated taxonomy list for the HESTIA DB
+#     read.csv("../data/Taxonomy/Species_taxonomy.csv"), 
+#     by = "Test.organisms..species.") %>%
+#   filter(is.na(Taxonomy.Group) | is.na(Species)) %>% 
+#   count(Test.organisms..species., sort = T)
+
+```
+
+
+##  Harmonize test durations and test concentration units and transform test concentrations into mg/L measurements.
+Filter out data that is not convertable into correct time units or concentration formats.
+
+effect concentration conversions needs a revision:
+ - #For toxic endpoints, are milligrams per liter (mg / L) equivalent to parts per million (ppm)?
+The endpoint concentrations for regulated toxic substances under the risk management program rule (40 CFR Part 68 Appendix A) are listed in units of milligrams per liter (mg/L).  Is this equivalent to parts per million (ppm)?
+No, mg/L is not always equivalent to ppm.  Whereas ppm is a volume-to-volume or mass-to-mass ratio, mg/l is a mass-to-volume relationship.  To convert from units of mg/L to ppm, use the following equation.  Endpoint (ppm) = [Endpoint (mg/L) x 1000 x 24.5] / [Molecular Weight]  EPA has included the RMP toxic endpoints in both ppm and mg/L in Appendix B of the Risk Management Program Guidance for Offsite Consequence Analysis (EPA550-B-99-009, April, 1999).#
+
+Hence, to convert ppm or ppb to mg/L, I need to redo the conversions. 
+Endpoint (ppm) = [Endpoint (mg/L) x 1000 x 24.5] / [Molecular Weight] -->
+Endpoint (ppm) x Molecular Weight / 1000 x 24.5 = Endpoint (mg/L) 
+```{r dur_and_val harmonization, warning = FALSE}
+
+HESTIA_HC20_DB_unit_and_value_conv <- HESTIA_HC20_DB_taxonomy_filter %>% 
+  left_join(
+    x = .,
+    y = NEW_PHYSCHEM %>% 
+      select(CAS.Number, MW.g.mol), 
+    by = "CAS.Number") %>%
+  # Some mean value cells are empty, but can be calculated from the min and max value
+  mutate(
+  # replacing excel-format commas for dots.
+    Value.MeanValue = gsub(pattern = ",", ".", Value.MeanValue), 
+    # Converting effect concentrations into numeric data
+    Value.MeanValue = as.numeric(Value.MeanValue), 
+    # selecting values of Exposure duration as the determined duration, but when missing, test duration is used.
+    Duration.MeanValue = case_when(
+      is.na(Exposure.duration.MeanValue) & !is.na(Duration.MeanValue) ~ Duration.MeanValue, 
+      TRUE ~ Exposure.duration.MeanValue),
+    # selecting Units of Exposure.duration when "original" duration is missing
+    Duration.Unit = case_when(
+      is.na(Exposure.duration.Unit) & !is.na(Duration.Unit) ~ Duration.Unit, 
+      TRUE ~ Exposure.duration.Unit),               
+    # Converting Test duration values into numeric data
+    Duration.MeanValue = as.numeric(Duration.MeanValue),
+    # Converting test-duration to a coherent unit (hour)
+    Time.Hours = case_when(
+      Duration.Unit == "min" ~ Duration.MeanValue/60,
+      Duration.Unit == "Second(s)" ~ Duration.MeanValue/3600,
+      Duration.Unit == "h" ~ Duration.MeanValue,
+      Duration.Unit == "d" ~ Duration.MeanValue*24,
+      Duration.Unit == "wk" ~ Duration.MeanValue*(24*7),
+      Duration.Unit == "mo" ~ Duration.MeanValue*(24*30),
+      Duration.Unit == "yr" ~ Duration.MeanValue*(24*365),
+      TRUE ~ as.numeric(NA)
+    ),
+  # Converting all eligible values into a coherent unit (mg/L)
+  Value.Unit = gsub(" ", "", as.character(Value.Unit)), 
+  Value.mg_l = case_when(
+    Value.Unit %in% c("µg/L", "ng/mL", "µg/dm³") ~ Value.MeanValue/1E3,
+    Value.Unit == "ppb" ~ Value.MeanValue/1E3,
+    Value.Unit %in% c("mg/L", "µg/mL", "g/m³", "mg/dm³")	 ~ Value.MeanValue,
+    Value.Unit == "µg/3.5L" ~ Value.MeanValue/0.000285714286,
+    Value.Unit %in% c("ppm", "µg/cm³") ~ Value.MeanValue,
+    Value.Unit %in% c("ng/L","pg/mL", "µg/µL") ~ Value.MeanValue/1E6,
+    Value.Unit %in% c("g/L", "g/dm³", "mg/mL", "µg/mm³") ~ Value.MeanValue*1E3,
+    Value.Unit == "µg/10L" ~ Value.MeanValue/1E4,
+    Value.Unit == "pg/L" ~ Value.MeanValue/1E9,
+    Value.Unit == "g/mL" ~ Value.MeanValue*1E6,
+    Value.Unit == "µg/100mL" ~ Value.MeanValue/100,
+    Value.Unit == "mg/100cm³" ~ Value.MeanValue*10,
+    Value.Unit == "µg/5mL" ~ Value.MeanValue/0.2,
+    Value.Unit == "mg/200mL" ~ Value.MeanValue*5,
+    Value.Unit %in% c("mol/L", "M", "mol","mol/dm³") ~ (Value.MeanValue*MW.g.mol)*1E3,
+    Value.Unit %in% c("mmol/L", "mM", "mmol/dm³", "mol/m³") ~ (Value.MeanValue*MW.g.mol),
+    Value.Unit %in% c("µmol/L", "µM", "mmol","µm", "µmol/dm³", "uM/L", "µM/L", "mmol/m³", "nmol/mL") ~ (Value.MeanValue*MW.g.mol)/1E3,
+    Value.Unit %in% c("nmol/L", "nmol", "nM/L", "nM")~ (Value.MeanValue*MW.g.mol)/1E6,
+    Value.Unit == c("pM")~ (Value.MeanValue*MW.g.mol)/1E9,
+    TRUE ~ as.numeric(NA)
+  ),
+  # Making sure that all units that are convertable into mg/L are actually converted to the same unit
+  # including values reported as molar units, where 1 M = 1 mol/L (https://en.wikipedia.org/wiki/Molar_concentration)
+  Value.unit.mg_l = as.factor(case_when(
+    Value.Unit %in% c(
+      "µg/L", "µg/cm³","ng/L","ng/mL","ppm", "ppb", "pg/mL", "mg/mL", "g/L", "g/dm³", 
+      "µM", "µm", "mM", "nM", "M", "pM", "mol", "nmol", "mmol",
+      "mg/dm³", "g/m³", "µg/dm³", "µg/100mL", "µg/µL", "µg/5mL", "µg/10L", "mg/L",
+      "µg/mm³", "pg/L", "g/mL", "mg/200mL", "mol/dm³", "µg/mL", "nmol/L", "nM/L", "mg/100cm³",
+      "µmol/L", "µmol/dm³", "uM/L", "µM/L", "mmol/L", "mmol/dm³", 
+      "mol/L", "mmol/m³", "µg/3.5L", "mol/m³", "nmol/mL" ) ~ "mg/L",
+      TRUE ~ as.character(NA)))
+  )
+```
+
+### Filtering non-mg/L units
+
+```{r dur_and_val_filtering, warning = FALSE}
+# FILTER STEP! 
+# Removing effect concentrations that was reported as NA or "0", as well as Value.mg_l == NA
+
+HESTIA_HC20_DB_effect_conc_filter <- HESTIA_HC20_DB_unit_and_value_conv %>% 
+  filter(
+    # Removing records not convertible into mg/L due to inapplicable units 
+    !is.na(Value.mg_l),
+    # Removing records missing mol weights.
+    !is.na(MW.g.mol), 
+    # Removing effect concentration "0"
+    Value.MeanValue != 0
+  ) 
+
+```
+
+### Acute/chronic Definition
+
+ Acute is considered when 
+ ≤1 d for algae, cyanobacteria and microorganism, 
+ ≤4 d for invertebrates (crustaceans), 
+ ≤7d for fishes, invertebrates (noncrustaceans), vertebrates, and aquatic plants other than algae” [Aurisano et al., 2019, p. 2570]
+ 
+ However, Müeller 2017 reports using different cut off times for Acute/Chronic definitions:
+ ≤1 d for microorganisms; 
+ ≤4 d for algae, cyanobacteria, and crustaceans; 
+ ≤7 d for invertebrates, fishes, and aquatic plants other than algae
+ 
+ I will apply the same as Aurisano (24h for microorganisms, algae and cyanobacteria).
+```{r}
+HESTIA_HC20_DB_val.unit_filter <- HESTIA_HC20_DB_effect_conc_filter %>% 
+  mutate(Time.Hours = as.numeric(Time.Hours)) %>%
+  # Defining time chronic/Acute exposure time units for USEtox classification
+  mutate(AcuteChronic = as.factor(
+    case_when(
+      Taxonomy.Group %in% c("Fish", "Plant", "Insect", "Mollusca", "Annellidae", "Amphibian") ~ case_when(Time.Hours < 168 ~ "Acute",
+                                                                                                          Time.Hours >= 168 ~ "Chronic"),
+      Taxonomy.Group == "Crustacean" ~ case_when(Time.Hours < 96 ~ "Acute",
+                                    Time.Hours >= 96 ~ "Chronic"),
+      Taxonomy.Group %in% c("Algae", "Rotifera") ~ case_when(Time.Hours < 24 ~ "Acute",
+                                            Time.Hours >= 24 ~ "Chronic"),
+      Taxonomy.Group == "Others" & !Phylum %in% c("Chordata", "Arthropoda", "Cnidaria") ~ case_when(Time.Hours < 24 ~ "Acute",
+                             Time.Hours >= 24 ~ "Chronic"),
+      Taxonomy.Group == "Others" & Phylum == "Arthropoda" ~ case_when(Time.Hours < 96 ~ "Acute",
+                             Time.Hours >= 96 ~ "Chronic"),
+                             TRUE ~ case_when(Time.Hours < 168 ~ "Acute",
+                                              Time.Hours >= 168 ~ "Chronic") ) 
+    ))
+
+```
+
+## Duration unit filter
+This operation will remove all records with experiment durations that are missing or being below 24h.
+```{r dur_unit_filter }
+HESTIA_HC20_DB_time.unit_filter <- HESTIA_HC20_DB_val.unit_filter %>% 
+  mutate(Time.Hours = as.numeric(Time.Hours)) %>% 
+  filter(Time.Hours != 0,
+         Time.Hours >= 24, 
+         !is.na(Time.Hours))
+```
+
+
+## Step 5. Endpoint EC0eq conversion function 
+EC10eq conversion factors from Table 3 [Aurisano et al., 2019] (Species-group specific conversions) are available
+Conversions for endpoints into EC10eq
+To EC10eq-chronic from EC50chronic	
+ - Fish	1.55 (0.67–3.66)
+ - Invertebrates	1.94 (1.56–2.41)
+ - Algae and bacteria	2.24 (1.90–2.65)
+To EC10eq-chronic from NOECchronic	
+ - Invertebrates	0.95 (0.77–1.16)
+ - Algae and bacteria	0.44 (0.39–0.49)
+To EC10eq-chronic from EC50acute	
+ - Fish	7.44 (2.92–18.95)
+ - Invertebrates	3.38 (2.14–5.34)
+To EC10eq-chronic from NOECacute	
+ - Fish	3.97 (0.90–17.39)
+ - Invertebrates	1.55 (0.91–2.64)
+When Species-groups fall outside of the specified conversions in Table 3 [Aurisano et al., 2019]
+I will apply generalized conversions from Table 4:
+To EC10eq-chronic from EC50chronic =
+ - 2 (1.8–2.5)
+To EC10eq-chronic from NOECchronic = 	
+ - 0.6 (0.4–0.7)
+To EC10eq-chronic from EC50acute =
+ - 4 (2.6–6.1) 
+To EC10eq-chronic from NOECacute = 
+ - 1.8 (1.0–2.7)
+ Additionally, when extrapolation factors have been added, I add columns defining the CI for the respective conversion factor (Also defined in Aurisano et al., 2019) 
+
+The following operation relies on functions found in `ec10eq_extrapolation_function` alongside the argument `mapply` to perform conversions rowwise across the entire df.
+This operation takes a couple of minutes.
+```{r EC10eq_conversions}
+# load EC10eq converson function
+source("../code/EC10eq_conversion_functions.R")
+
+Q_dat <- HESTIA_HC20_DB_time.unit_filter %>% 
+  mutate(
+    EC10eq = mapply(ec10eq_extrapolation_function, Value.mg_l, Endpoint, AcuteChronic, Taxonomy.Group, "extpl"),
+    EC10eq_high = mapply(ec10eq_extrapolation_function, Value.mg_l, Endpoint, AcuteChronic, Taxonomy.Group, "high_CI"),
+    EC10eq_low = mapply(ec10eq_extrapolation_function, Value.mg_l, Endpoint, AcuteChronic, Taxonomy.Group, "low_CI"),
+    EC10eq_Acute = case_when(AcuteChronic == "Acute" ~ EC10eq, TRUE ~ as.numeric(NA)),
+    EC10eq_Chronic = case_when(AcuteChronic == "Chronic" ~ EC10eq, TRUE ~ as.numeric(NA)),
+         No.Extrapolations = as.numeric(case_when(Endpoint_conv == "EC10" ~ 0, TRUE ~ 1)),# Making sure to annotate whether an effect value is extrapolated or not for downstream applications.
+    DB = "HESTIA",
+    version = "HESTIA 1.3"
+    )  
+
+# write.csv(expf_df, "../data/excel_references/EC10_extrapolation_factor_summary_table.csv", row.names = F)
+
+write.csv(Q_dat, "../results/HESTIA_EC10eq_pure_DB.csv", row.names = F)
+
+
+```
+
+
+# Data Wrangling visualization
+Using the package `networkD3` (https://CRAN.R-project.org/package=networkD3)
+```{r, echo=FALSE}
+
+nodes = data.frame("name" = c(
+   "OECD_QSAR_Toolbox", 
+   "ECOTOX", "Aquatic ECETOC", "Food TOX Hazard EFSA", "Aquatic Japan MoE", "Aquatic Oasis",
+   "1. Validated data", 
+   "2. Data in range-filter", "3. Controls insufficient or unsatisfactory", "4. Non-Fresh Water data", "5. Effect criterions irrelevant", "6. Poor taxonomic descriptions",
+   "7. Effect unit/value '0'or'NA'", "8. Duration 'NA' or <24h",
+   "EC50-data", "EC10-data", "NOEC-data",
+   "Acute EC10eq", "Chronic EC10eq"),
+   "Node_Group" = c("Toolbox", rep("DBs", 5), "Validated_data", rep("Filter1", 7),  rep("Endpoint", 3), rep("EC10eq",2))
+               )
+
+links = as.data.frame(matrix(c(
+    1,0,nrow(HESTIA_HC20_DB %>% filter(Database == "ECOTOX")),
+    2,0,nrow(HESTIA_HC20_DB %>% filter(Database == "Aquatic ECETOC")),
+    3,0,nrow(HESTIA_HC20_DB %>% filter(Database == "Food TOX Hazard EFSA")),
+    4,0,nrow(HESTIA_HC20_DB %>% filter(Database == "Aquatic Japan MoE")),
+    5,0,nrow(HESTIA_HC20_DB %>% filter(Database == "Aquatic OASIS")),
+    0,6,nrow(Q_dat), # Stuff kept from filter operations
+    0,7,nrow(HESTIA_HC20_DB) - nrow(HESTIA_HC20_DB_qualifier_filter), # Selecting effect data within a range 
+    0,8,nrow(HESTIA_HC20_DB_qualifier_filter) - nrow(HESTIA_HC20_DB_Control.Type_filter),  # Test.Control == "insufficient" or "unsatisfactory"
+    0,9,nrow(HESTIA_HC20_DB_Control.Type_filter) - nrow(HESTIA_HC20_DB_water_filter), # Non-FW media type
+    0,10,nrow(HESTIA_HC20_DB_water_filter) - nrow(HESTIA_HC20_DB_effect_crit_filter), # Irrelevant effect criterions
+    0,11,nrow(HESTIA_HC20_DB_effect_crit_filter) - nrow(HESTIA_HC20_DB_taxonomy_filter), # Taxonomy
+    0,12,nrow(HESTIA_HC20_DB_unit_and_value_conv) - nrow(HESTIA_HC20_DB_effect_conc_filter), # Effect Unit/Value "na" or "0"
+    #0,13,nrow(HESTIA_HC20_DB_effect_conc_filter) - nrow(HESTIA_HC20_DB_val.unit_filter), # Incorrect units to describe effect
+    0,13,nrow(HESTIA_HC20_DB_val.unit_filter) - nrow(HESTIA_HC20_DB_time.unit_filter), # Incorrect time unit
+    
+    6,14,nrow(Q_dat %>% # How many EC50 do we have? 
+                    filter(Endpoint_conv == "EC50")),
+    6,15,nrow(Q_dat %>% # How many LOEC do we have? 
+                    filter(Endpoint_conv == "EC10")),
+    6,16,nrow(Q_dat %>% # How many NOEC do we have? 
+                    filter(Endpoint_conv == "NOEC")),
+    
+    14,17,nrow(Q_dat %>% # How many Acute EC50 do we have? 
+                    filter(Endpoint_conv == "EC50",
+                           AcuteChronic == "Acute")),
+    14,18,nrow(Q_dat %>% # How many Chronic EC50 do we have? 
+                    filter(Endpoint_conv == "EC50",
+                           AcuteChronic == "Chronic")),
+    15,17,nrow(Q_dat %>% # How many Acute EC10 do we have? 
+                    filter(Endpoint_conv == "EC10",
+                           AcuteChronic == "Acute")),
+    15,18,nrow(Q_dat %>% # How many Chronic do we have? 
+                    filter(Endpoint_conv == "EC10",
+                           AcuteChronic == "Chronic")),
+    16,17,nrow(Q_dat %>% # How many Acute NOEC do we have? 
+                    filter(Endpoint_conv == "NOEC",
+                           AcuteChronic == "Acute")),
+    16,18,nrow(Q_dat %>% # How many Chronic NOEC do we have? 
+                    filter(Endpoint_conv == "NOEC",
+                           AcuteChronic == "Chronic"))
+                                        ),
+  byrow = TRUE, ncol = 3))
+
+names(links) = c("source", "target", "value")
+links$groups = c(rep("A", 5), "B", rep("C", 10), "A_EC10", "C_EC10","A_EC10", "C_EC10","A_EC10", "C_EC10")
+
+Wrangle_plot <- sankeyNetwork(Links = links, Nodes = nodes,
+ Source = "source", Target = "target",
+ Value = "value", NodeID = "name", 
+ LinkGroup = "groups", NodeGroup = "Node_Group",
+ units = "n", fontFamily = "sans-serif",
+ fontSize = 10, nodeWidth = 30, sinksRight = FALSE)
+
+Wrangle_plot
+
+saveNetwork(Wrangle_plot, "Wrangle_plot.html", selfcontained = TRUE)
+saveWidget(Wrangle_plot, file = "Wrangle_plot_widget.html", selfcontained = TRUE, title = "Overview of data curation steps")
+
+```
+
+# Step 6. EnviroTox
+
+## Merging HESTIA Tox DB with the EnviroTox DB.
+The code below adds Envirotox "on top of" the HESTIA DB, Prioritizing HESTIA CAS and Species, while adding CAS and species' unique to the Envirotox DB.
+
+```{r Envirotox}
+# Specifying which columns i want to keep in the main dataset
+common_name_elements <- c(
+  "CAS.Number", "DB", "version", "Database", "Species", "Genus", 
+  "Taxonomy.Group", "Medium", "Effect", "Value.mg_l", "AcuteChronic", 
+  "Endpoint", "Endpoint_conv", "Time.Hours",
+  "EC10eq", "EC10eq_Chronic", "EC10eq_Acute", "No.Extrapolations", "Source")
+
+# Reading in the Envirotox database (created in ../code/Envirotox_DB.Rmd)
+EnviroTox_toxDB_EC10eq <- read.csv("../data/RAW_DB/EnviroTox_toxDB_EC10eq.csv")
+
+# filtering out the unique Envirotox records
+EnviroTox_Q_dat <- rbind(
+  EnviroTox_toxDB_EC10eq %>% 
+    # Removing all species taxonomic annotations given as "Genus sp."
+    filter(!grepl("sp\\.", Species)) %>% 
+    # selecting all CAS from `EnviroTox_substDB` that are NOT overlapping.
+    filter(!CAS.Number %in% Q_dat$CAS.Number),
+  EnviroTox_toxDB_EC10eq %>% 
+    # Removing all species taxonomic annotations given as "Genus sp."
+    filter(!grepl("sp\\.", Species)) %>% 
+    # selecting all species that are unique to the `Q_dat` DB- 
+    filter(CAS.Number %in% Q_dat$CAS.Number,
+         !Species %in% Q_dat$Species))  %>% 
+  select(common_name_elements)
+
+HESTIA_BASE_dat <- Q_dat %>% 
+  rename(Medium = Media.type) %>% 
+  unite(Source, c("Title", "Author", "Year", "Reference.source", "URL", "DOI"), sep = ";", na.rm = TRUE) %>% 
+  select(common_name_elements)
+
+# This is the raw database with HESTIA as BASE and Envirotox as "filler"
+HESTIA_BASE_EnviroTox_FILL <- rbind(HESTIA_BASE_dat, EnviroTox_Q_dat)
+
+write.csv(HESTIA_BASE_EnviroTox_FILL, "../results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv", row.names = F)
+```
+
+## Merging all physchem & subst. use-type annotations 
+```{r MergingPhyschem}
+FULL_PHYSCHEM <- rbind(
+  NEW_PHYSCHEM,
+  read.csv("../data/excel_references/Envirotox_physchem.csv") %>% 
+    # Duplicates in the two datasets are present. Filtering out these here.
+    filter(!CAS.Number %in% NEW_PHYSCHEM$CAS.Number))
+```
+
+
+## Calculating HC50_EC50 for the HESTIA_envirotox Database for backwards compatibility with previous LCA-tox versions.
+Dependency on `../code/HC50_calculation_function.R`-file with the defined function. 
+This operation requires Physchem/subst.use-group data to be joined with the toxicological data.
+```{r HC50EC50}
+source("../code/HC50_calculation_function.R")
+
+# Attaching the Physchem data to HESTIA dataset and outputting a df with HC50 data
+HESTIA_HC50_calc <- HC50_calc_function(HESTIA_BASE_EnviroTox_FILL %>% left_join(x = ., y = FULL_PHYSCHEM, by = "CAS.Number"))
+```
+
+## HC20EC10eq calculations for HESTIA_BASE_EnviroTox_FILL
+
+```{r HC20Calculations}
+source("../code/HC20_calculation_function.R")
+
+HESTIA_HC20_dataset <- HCx_calculator(HESTIA_BASE_EnviroTox_FILL, HCx = 20)
+
+write.csv(HESTIA_HC20_dataset, "../results/HESTIA_HC20_dataset.csv", row.names = F)
+```
+
+## Summarizing uncertainty across the entire dataset
+```{r}
+### OBSOLETE and SLOW for-loop code:
+# Uncertain_norm_dataset_func <- function(x) {
+#   # Make a CAS.Number vector to loop over
+#   H_CAS <- x %>% 
+#     distinct(CAS.Number) %>% pull()
+#   UC_df <- data.frame(matrix(NA, nrow = length(H_CAS), ncol = 8))
+#   names(UC_df)[1:8] <- c("CAS.Number", "n", "Q0.05", "Q0.95", "mean_EC10eq", "median_EC10eq", "sd_EC10eq", "CV_EC10eq")
+#   
+#   for (i in 1:length(H_CAS)) {
+#     UC_df[i,] <- x %>% 
+#       filter(CAS.Number %in% H_CAS[i]) %>% 
+#       select(CAS.Number, Species, Taxonomy.Group, EC10eq) %>% 
+#       # mutate(ln_EC10eq = log(EC10eq),
+#       #        #log_EC10eq = log10(EC10eq)
+#       #        ) %>% 
+#       group_by(CAS.Number) %>% 
+#       summarize(n = n(),
+#                 #mean_log_EC10eq = mean(log_EC10eq),
+#                 Q0.05 = quantile(EC10eq, probs = 0.05),
+#                 Q0.95 = quantile(EC10eq, probs = 0.95),
+#                 mean_EC10eq = mean(EC10eq),
+#                 median_EC10eq = median(EC10eq),
+#                 sd_EC10eq = sd(EC10eq),
+#                 CV_EC10eq = sd_EC10eq/mean_EC10eq) %>% 
+#       ungroup()
+#     
+#   }
+#   return(UC_df)  
+# }
+# system.time(uncert_data <- Uncertain_norm_dataset_func(HESTIA_BASE_EnviroTox_FILL))
+
+uncert_data <- HESTIA_BASE_EnviroTox_FILL %>%
+    group_by(CAS.Number) %>%
+    summarize(n = n(),
+              Q0.05 = quantile(EC10eq, probs = 0.05),
+              Q0.95 = quantile(EC10eq, probs = 0.95),
+              mean_EC10eq = mean(EC10eq),
+              median_EC10eq = median(EC10eq),
+              sd_EC10eq = sd(EC10eq),
+              CV_EC10eq = sd_EC10eq / mean_EC10eq) %>%
+    ungroup()
+
+
+write.csv(uncert_data, "../results/HESTIA_data_distribution_summary.csv", row.names = F)
+
+
+```
+
+
+## Running the weighted uncertainty model
+```{r}
+# Dataset to analyze is object `HESTIA_BASE_EnviroTox_FILL`
+
+# # load the nls function
+#  source("code/least_squares_fit_model_code.R")
+# # 
+# # # Running the operation with the HESTIA toxicity dataset, generating a list object
+#  system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "YES", Plot_destination = "figures/SSD_plots"))
+# # 
+# # #Transform into a dataframe - removing the list of lists containing full nls-output
+# # nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:11])) %>%
+# #  mutate(across(c(2:10), ~ as.numeric(.x)),
+# #         CAS.Number = as.factor(CAS.Number))
+# # write.csv(nls_output_df, "results/nls_output_df.csv", row.names = F)
+
+```
+
+
+## Merging Physchem & Tox data
+Creating an output file with the USEtox 2.1 database input structure 
+
+## Not functional yet. need to adapt to reworked datasets!
+```{r FinalDataset}
+
+HESTIA_envirotox_cfs <- left_join(
+    x = FULL_PHYSCHEM, 
+    y = HESTIA_HC20_dataset,
+    by = "CAS.Number") %>% 
+# Selection for the SHINY-app
+  select(c(
+    CAS.Number, CanonicalSMILES, PesticideAI_name, Molecular.formula, Predefined.substance.type,
+    Substance_type, Group, Subgroup, Heavy.Metals, Halogenated, definition, n_data_recs, n_species, sum_extrapolations, n_Taxonomy.Group, 
+    mean_EC10eq, Sd_EC10eq, HC20EC10eq, HC20,
+    MW.g.mol, pKaChemClass,
+    pKa.gain, pKa.loss, Kow_L.L, Koc_L.kg_MCI,
+    kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L,
+    KdegA, KdegW, KdegSd, KdegSl, BAF_L.Kg)
+  )
+
+write.csv(HESTIA_envirotox_cfs, "../HESTIA_Shiny/data/HESTIA_envirotox_cfs.csv", row.names = F)
+
+#read.csv("data/HESTIA_envirotox_cfs.csv")
+# Selection for the USEtox input
+  # select(c(
+  #   CAS.Number, PesticideAI_name, Group, Subgroup, 
+  #   MW.g.mol, pKaChemClass, pKa.gain, pKa.loss, 
+  #   Kow_L.L, Koc_L.kg_MCI, kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L,
+  #   KdegA, KdegW, KdegSd, KdegSl, HC20EC10eq, BAF_L.Kg
+  #   # Molecular.formula, Predefined.substance.type, CanonicalSMILES, Substance_type, Heavy.Metals, Halogenated, definition, n_data_recs, n_species, sum_extrapolations, n_Taxonomy.Group, 
+  #   # mean_EC10eq, Sd_EC10eq,  HC20,
+  #   )
+  # )
+
+write.csv(HESTIA_envirotox_cfs, "../results/HESTIA_HC20_dataset_USEtox_format.csv", row.names = F)
+```
+
+
+# Merging Envirotox DB as BASE with HESTIA giving additional data.
+The HESTIA DB might have some flaws, but it contains plenty of ecotoxicological information for at broad range of substances.
+The following operation is meant to perform two steps.
+1. Separate the HESITA (`Q_dat` object) dataset into substances not available in the EnviroTox DB and use "as-is".
+2. The remaining data that has matching substances (CAS.numbers), filter out all species information in the HESTIA dataset and "replace" with the EnviroTox dataset.
+
+This provides us with a broad data set that has EnviroTox as the bulk of data. 
+A trade off that comes into play is the EnviroTox trimming of outliers: 
+ "Outliers are defined as 3 orders of magnitude away from the species geometric mean effect value for species tested >=3 times for any given chemical–species pair; 4 orders of magnitude different from the trophic level geometric mean for a trophic group tested >=3 times for any given chemical; 3 orders of magnitude from the trophic level geometric mean for a rare species if a trophic group had >=30 individual entries for a given chemical."
+
+```{r}
+HESTIA_top_Q_dat <- rbind(
+  Q_dat %>% 
+    # selecting all CAS from `Q_dat` that are NOT overlapping.
+    filter(!CAS.Number %in% unique(EnviroTox_toxDB_EC10eq$CAS.Number)),
+  Q_dat %>% 
+    # selecting all species that are unique to the `Q_dat` DB- 
+    filter(CAS.Number %in% unique(EnviroTox_toxDB_EC10eq$CAS.Number),
+         !Species %in% unique(EnviroTox_toxDB_EC10eq$Species)),
+  Q_dat %>% 
+    # Selecting Time Duration <24h For the overlapping Substances and species.  
+    filter(CAS.Number %in% unique(EnviroTox_toxDB_EC10eq$CAS.Number),
+         Species %in% unique(EnviroTox_toxDB_EC10eq$Species),
+         Time.Hours < 24) )%>% 
+  rename(Medium = Media.type) %>%  
+  unite(Source, c("Title", "Author", "Year", "URL", "DOI"), sep = ";") %>% 
+  select(common_name_elements) 
+
+# This is the "raw database" with Envirotox as BASE and HESTIA as "filler
+HESTIA_FILL_EnviroTox_BASE <- rbind(
+  EnviroTox_toxDB_EC10eq %>% 
+    select(common_name_elements), 
+  HESTIA_top_Q_dat)
+
+```
+
+

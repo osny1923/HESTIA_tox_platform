@@ -1,0 +1,160 @@
+---
+title: "Original_HC20EC10eq_calculations"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Dir & Libraries
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "C:\\Users\\Oskar\\Box\\PhD\\Collaborations\\Pesticide inclusion in LCA\\Results folder\\HESTIA_HC20", verbose = TRUE)
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, verbose = TRUE)
+# These libraries are used 
+   #install.packages("goeveg") # <- for simple coefficient of Variation calculation at summary of data
+    library(rmarkdown)
+    library(xlsx)
+    library(tidyverse)
+    library(readr)
+    library(kableExtra)
+    library(webchem)
+    library(taxize)
+    library(usethis)
+    library(ggpubr)
+    library(networkD3)
+```
+
+## HC20EC10eq calculations! 
+Description??
+
+Quality scoring exploration   
+Quality scores are defined in Sala et al., 2022. It is a applicable to my methodology and i might as well apply it to these data.
+ formula for Quality Scoring (QSe)
+  `QSe = log(n_species)*log(n_Taxonomy.Group)*(1/1+n_extrapolations)^0.1`
+
+ Can be used within a mutate function.
+ i only need to count the number of extrapolations in the dataset. should be doable.
+ -  formula has been added to operations below
+
+HC20EC10eq transformations
+
+Question is whether i should remove all data with only one species available at the first averaging operation?
+What happens when there is only one species represented for a chemical?
+
+```{r}
+##############
+# HC20EC10eq transformations! 
+##############
+# Species averaging operation (species averages must be done prior to chemical averages)
+HC20EC10eq_dataset_first_avg <- Q_dat %>% 
+    group_by(CAS.Number, SMILES, Predefined.substance.type, CIR_Name, MW.g.mol, Taxonomy.Group, Species) %>%
+# Log10-transforming effect concentrations, then calculating the arithmetic mean per species' log10 effect concentration
+    summarise(meanEC10eq = mean(EC10eq, na.rm = TRUE),
+              medianEC10eq = median(EC10eq, na.rm = TRUE),
+              n_data_points = n(), # n data points in each species group
+              n_acute = sum(!is.na(EC10eq_acute)), # makes a logical operation to evaluate if NA or not NA, sum(all that is true)
+              n_chronic = sum(!is.na(EC10eq_chronic)), # makes a logical operation to evaluate if NA or not NA, sum(all that is true)
+              log10EC10eq = case_when(n_data_points > 1 ~ mean(log10(EC10eq), na.rm = TRUE),
+                                      TRUE ~ mean(log10(EC10eq))), # Arithmetic mean of log10-transformed EC10eq-data based on acute AND Chronic effect data
+              log10EC10eq_acute = case_when(n_acute > 1 ~ mean(log10(EC10eq_acute), na.rm = TRUE),
+                                            TRUE ~ mean(log10(EC10eq_acute))), # Arithmetic mean of log10-transformed EC10eq-data based on acute effect data
+              log10EC10eq_chronic = case_when(n_chronic > 1 ~ mean(log10(EC10eq_chronic), na.rm = TRUE),
+                                         TRUE ~ mean(log10(EC10eq_chronic))), # Arithmetic mean of log10-transformed EC10eq-data based on acute effect data
+              EC10eq_range = case_when(max(EC10eq, na.rm = T) - min(EC10eq, na.rm = T) == 0 ~ as.numeric(NA),
+                                       TRUE ~ max(EC10eq, na.rm = T) - min(EC10eq, na.rm = T)),
+              EC10eq_acute_range = max(EC10eq_acute, na.rm = T) - min(EC10eq_acute, na.rm = T),
+              EC10eq_chronic_range = max(EC10eq_chronic, na.rm = T) - min(EC10eq_chronic, na.rm = T),
+              #log10EC10eq_low = mean(log10(EC10eq_low), na.rm = TRUE), # Arithmetic mean of log10-transformed EC10eq-data based on acute effect data
+              #log10EC10eq_high = mean(log10(EC10eq_high), na.rm = TRUE), # Arithmetic mean of log10-transformed EC10eq-data based on acute effect data
+              n_extrapolations = sum(No.Extrapolations),
+              sd_all = sd(EC10eq, na.rm = TRUE), # Standard deviation of all data points per species group
+              sd_acute = sd(EC10eq_acute, na.rm = TRUE), # Standard deviation of all acute data points per species group
+              sd_chronic = sd(EC10eq_chronic, na.rm = TRUE), # Standard deviation of all chronic data points per species group
+            # Kör inte CoV på log-data!!  
+              CoV_Paka = sd_all/meanEC10eq, # Coefficient of variation for all data points per species group  
+              CoV_all = goeveg::cv(EC10eq, na.rm = TRUE), # Coefficient of variation for all data points per species group  
+              CoV_acute = goeveg::cv(EC10eq_acute, na.rm = TRUE), # Coefficient of variation for all acute data points per species group
+              CoV_chronic = goeveg::cv(EC10eq_chronic, na.rm = TRUE), # Coefficient of variation for all chronic data points per species group
+              #CoV_pwr2_all = CoV_all^2, # Coefficient of variation SQUARED for all data points per species group
+              #CoV_pwr2_acute = CoV_acute^2, # Coefficient of variation SQUARED for all acute data points per species group
+              #CoV_pwr2_chronic = CoV_chronic^2, # Coefficient of variation SQUARED for all chronic data points per species group
+              time_hours_min = min(Time.Hours, na.rm = TRUE), # Minimum test time data is based on
+              time_hours_max = max(Time.Hours, na.rm = TRUE) # Maximum test time data is based on
+              
+              ) %>% 
+      ungroup() %>% 
+      mutate(across(starts_with("log"), ~ case_when(is.nan(.x) ~ as.numeric(NA), 
+                                                     TRUE ~ .x)))
+
+
+HC20EC10eq_dataset_second_avg <- HC20EC10eq_dataset_first_avg %>% 
+# Summarizing a second time to get averages across all taxa as well as counts of n = acute data points, n = chronic data points, n = USEtox taxa per acute/chronic factor
+    group_by(CAS.Number, SMILES, Predefined.substance.type, MW.g.mol, CIR_Name) %>% 
+    summarise(mean_sp_EC10eq = mean(meanEC10eq),
+              median_sp_EC10eq = median(medianEC10eq),
+              meanlog10EC10eq = mean(log10EC10eq, na.rm = TRUE), # arithmetic mean of (chronic) logEC10eq for all species per chemical
+              #meanlog10EC10eq_low = mean(log10EC10eq_low, na.rm = TRUE), # arithmetic mean of lower level CI(95%) logEC10eq for all species per chemical
+              #meanlog10EC10eq_high = mean(log10EC10eq_high, na.rm = TRUE), # arithmetic mean of lower level CI(95%) logEC10eq for all species per chemical
+              #meanlog10EC10eq_acute = mean(log10EC10eq_acute, na.rm = TRUE), # arithmetic mean of (acute) logEC10eq for all species per chemical
+              meanlog10EC10eq_chronic = mean(log10EC10eq_chronic, na.rm = TRUE), # arithmetic mean of (chronic) logEC10eq for all species per chemical
+              sd_log = sd(log10EC10eq, na.rm = TRUE), # Standard deviation of all log-transformed data for each substance
+              #sd_log_low = sd(log10EC10eq_low, na.rm = TRUE), # Standard deviation of all log-transformed lower level CI(95%) data for each substance
+              #sd_log_high = sd(log10EC10eq_high, na.rm = TRUE), # Standard deviation of all log-transformed lower level CI(95%) data for each substance
+              #sd_log_acute = sd(log10EC10eq_acute, na.rm = TRUE), # Standard deviation of all log-transformed acute data for each substance 
+              sd_log_chronic = sd(log10EC10eq_chronic, na.rm = TRUE), # Standard deviation of all log-transformed chronic data for each substance
+              logHC20EC10eq_all = meanlog10EC10eq + (sd_log * -0.842), # Calculating the log HC20EC10eq which uses mean, sd and z0.2; the inverse of the standard normal
+              #logHC20EC10eq_low = meanlog10EC10eq_low + (sd_log_low * -0.842), # Calculating the log HC20EC10eq of lower level CI(95%) which uses mean, sd and z0.2; the inverse of the standard normal
+              #logHC20EC10eq_high = meanlog10EC10eq_high + (sd_log_high * -0.842), # Calculating the log HC20EC10eq of lower level CI(95%) which uses mean, sd and z0.2; the inverse of the standard normal
+              #logHC20EC10eq_acute = meanlog10EC10eq_acute + (sd_log_acute * -0.842), # Calculating the log HC20EC10eq which uses mean, sd and z0.2; the inverse of the standard normal distribution at the 0.2 probability level (-0.842) (Owsianiak et al., 2022)
+              logHC20EC10eq_chronic = meanlog10EC10eq_chronic + (sd_log_chronic * -0.842), # Calculating the log HC20EC10eq which uses mean, sd and z0.2; the inverse of the standard normal distribution at the 0.2 probability level (-0.842) (Owsianiak et al., 2022)
+              logHC20EC10eq_best = case_when(sum(!is.na(log10EC10eq_chronic)) <5 & sum(!is.na(log10EC10eq)) >=5 ~ meanlog10EC10eq + (sd_log * -0.842),
+                                        TRUE ~ logHC20EC10eq_chronic),# Using Owsianiak's principle to calculate EC10eq from chronic data, unless fewer than 5 species-specific chronic EC10eq data points exist. Then calculate SSDss using both acute & chronic data
+              median_range_all_EC10eq = median(EC10eq_range),
+          # Concentration-response slope factor calculation represents an incremental change in the potentially affected fraction of species due to an incremental exposure to the bioavailable concentration of a chemical at the HC20 level  
+              CRF_all = 0.2/10^logHC20EC10eq_all, # Concentration-response slope factor calculation based on all available data
+              #CRF_acute = 0.2/10^logHC20EC10eq_acute, # Concentration-response slope factor calculation based on acute data only
+              #CRF_chronic = 0.2/10^logHC20EC10eq_chronic, # Concentration-response slope factor calculation based on chronic data only
+              CRF_best = 0.2/10^logHC20EC10eq_best,# Concentration-response slope factor calculation for >5 chronic datapoints or if not sufficient data, acute data is used. According to Owsianiak et al. 2022 
+              n_data_tot = sum(n_data_points), # Number of data points available for this substance
+              sum_extrapolations = sum(n_extrapolations),
+              n_acute_sum = sum(n_acute), # Number of acute data points available for this substance
+              n_chronic_sum = sum(n_chronic), # Number of chronic data points available for this substance
+              n_best = case_when(sum(!is.na(log10EC10eq_chronic)) <5 & sum(!is.na(log10EC10eq)) >=5 ~ (sum(n_chronic) + sum(n_acute)),
+                                        TRUE ~ n_chronic_sum), # Number of data points available for this substance when considering only >5 species' chronic data or, if not sufficient, all data points.
+              n_species_all = sum(!is.na(log10EC10eq)),
+              #n_species_acute = sum(!is.na(log10EC10eq_acute)),
+              #n_species_chronic = sum(!is.na(log10EC10eq_chronic)),
+              n_species_best = sum(!is.na(log10EC10eq)),
+              n_CoV_all = sum(!is.na(CoV_all)), # makes a logical operation to evaluate if NA or not NA, sum(all that is true)
+              #n_CoV_acute = sum(!is.na(CoV_acute)), # makes a logical operation to evaluate if NA or not NA, sum(all that is true)
+              n_CoV_chronic = sum(!is.na(CoV_chronic)), # makes a logical operation to evaluate if NA or not NA, sum(all that is true)
+            #  CoV_cum_chronic = sqrt(sum(CoV_pwr2_acute, na.rm=TRUE)), # Cumulative CoV - A non-reliable way to assess CoV across many CoV values
+            #  CoV_cum_acute = sqrt(sum(CoV_pwr2_acute, na.rm=TRUE)), # Cumulative CoV - A non-reliable way to assess CoV across many CoV values
+              n_Taxonomy.Group_all = n_distinct(Taxonomy.Group[!is.nan(log10EC10eq)]),
+              #n_Taxonomy.Group_acute = n_distinct(Taxonomy.Group[!is.nan(log10EC10eq_acute)]),
+              n_Taxonomy.Group_chronic = n_distinct(Taxonomy.Group[!is.nan(log10EC10eq_chronic)]),
+              QSe = log(n_species_all)*log(n_Taxonomy.Group_all)*(1/(1+sum_extrapolations)^0.1),
+              QSe_desc = case_when(QSe > 1.77 ~ "High Quality",
+                                QSe > 1.48 & QSe <= 1.77 ~ "Intermediate Quality",
+                                QSe > 0 & QSe <= 1.48 ~ "Low Quality",
+                                QSe == 0 ~ "Insufficient Data"),
+              mean_CoV = mean(CoV_all, na.rm = TRUE), # <- just a metric to get the means sorted in the plot output!!
+              median_CoV = median(CoV_all, na.rm = TRUE), # <- just a metric to get the means sorted in the plot output!!
+              n_mean_CoV= sum(!is.na(CoV_all)),
+          # Räkna på CV för meanlog10EC10eq - det är ett mått på spridningen för medlet av alla arter i den här operationen
+              CoV_sp_mean_EC10eq = goeveg::cv(0.2/10^meanEC10eq, na.rm = TRUE), # CoV of species mean values
+              #mean_CoV_all = mean(CoV_all), # Mean of CoV for all species. 
+              #mean_CoV_acute = mean(CoV_acute), # Mean of CoV for all species. 
+              mean_CoV_chronic = mean(CoV_chronic), # Mean of CoV for all species. 
+              #CoV_CRF = goeveg::cv(0.2/10^(mean(log10EC10eq, na.rm = TRUE) + (sd(log10EC10eq, na.rm = TRUE) * -0.842)), na.rm = TRUE),
+              #CoV_CRF_acute = goeveg::cv(0.2/10^(mean(log10EC10eq_acute, na.rm = TRUE) + (sd(log10EC10eq_acute, na.rm = TRUE) * -0.842)), na.rm = TRUE),
+              #CoV_CRF_chronic = goeveg::cv(0.2/10^(mean(log10EC10eq_chronic, na.rm = TRUE) + (sd(log10EC10eq_chronic, na.rm = TRUE) * -0.842)), na.rm = TRUE)
+              ) %>%
+              ungroup() %>% 
+              mutate(across(starts_with(c("mean", "log", "CRF")), ~ case_when(is.nan(.x) ~ as.numeric(NA), # making sure empty cells are specified as "NA".
+                                                     TRUE ~ .x)))
+          
+# Done with the different USEtox organism classifications and their categorized avlogHC50. 
+ # This is the `HC20EC10eq_dataset_second_avg` object.
+
+```

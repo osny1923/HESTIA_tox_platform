@@ -1,0 +1,366 @@
+---
+title: "QSAR_Tox_DB"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+# Dir & Libraries
+
+```{r setup}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, verbose = TRUE)
+# These libraries are used for analysis
+   #install.packages("webchem")
+   #install.packages("taxize")   # <- Installing the "taxize" library http://dx.doi.org/10.5281/zenodo.7097
+   #install.packages("networkD3") <- For the Sankey flow chart visualization
+   #install.packages("goeveg") # <- for simple coefficient of Variation calculation at summary of data
+    library(rmarkdown)
+    library(xlsx)
+    library(tidyverse)
+    library(readr)
+    library(kableExtra)
+    library(webchem)
+    library(taxize)
+```
+
+QSAR Estimations generated for the HESTIA database 
+
+QSAR models are mathematical models that correlate the structure of a chemical compound with its toxicity or other biological activity. These models can be used to predict the toxicity of new chemicals that have not yet been tested in vivo or in vitro, and they can also be used to screen large numbers of chemicals for potential toxicity. To build a QSAR model, a large dataset of chemicals with known toxicity data is needed. This dataset is usually divided into a training set and a validation set. The training set is used to build the model, while the validation set is used to test the model's predictive power. The structure of each chemical in the dataset is described by a set of molecular descriptors, which are numerical values that reflect various physicochemical properties of the molecule, such as its size, shape, charge, and polarity. These descriptors can be calculated using computational chemistry software. The next step is to select a statistical or machine learning algorithm to build the QSAR model. There are many different algorithms that can be used, such as multiple linear regression, support vector machines, random forests, and neural networks. The algorithm is trained using the molecular descriptors of the chemicals in the training set, along with their corresponding toxicity data. The resulting model can then be used to predict the toxicity of new chemicals based on their molecular descriptors. It's important to note that QSAR models have limitations and should not be relied upon as the sole method for assessing chemical toxicity. They are best used as a screening tool to identify chemicals that may require further testing. Additionally, QSAR models are only as good as the data they are based on, so it's important to ensure that the dataset used to build the model is comprehensive and representative of the chemicals being studied.
+
+First step is to produce lists of SMILES-configurations to be used in VEGA
+Quick output of all the SMILES configuration of all chemicals as a .txt list (for VEGA-QSARs)
+Vega is bad at allocating RAM and needs shorter lists ~5000 chemicals each. so I am exporting 3 different lists of n ~5000 chemicals!
+This output is generated in the first chunk below with files called "QSAR_SMILES_list[xk-xxk].txt"
+First order is to annotate the CAS_SMILES_list with an indexing ID number, since the SMILES output from VEGA software will be in different format from the SMILES input. no idea why. 
+so, first make an index column -> remove all NAs -> export subsets (3x lists). RUN data through VEGA software, then import results (rbind the 3x files) and merge back with the matrix containing CASRN, SMILES and index ID.
+
+```{r VEGA_input_generator, eval = F}
+#cas_smiles_list <- read.csv("../data/excel_references/Full_CAS_SMILES.csv")
+CAS_SMILES_list <- read_tsv("../data/excel_references/CAS_CID_list_final.txt", col_names = F)
+names(CAS_SMILES_list) <- c("CAS.Number", "SMILES")
+CAS_SMILES_list_no_na <- CAS_SMILES_list %>% 
+  filter(!is.na(SMILES))
+write.table(CAS_SMILES_list_no_na[1:5000,2], "../data/excel_references/QSAR_SMILES_list[1-5k].txt", row.names = F, col.names = F, quote = F, sep = "\t")
+write.table(CAS_SMILES_list_no_na[5001:10000,2], "../data/excel_references/QSAR_SMILES_list[5k-10k].txt", row.names = F, col.names = F, quote = F, sep = "\t")
+write.table(CAS_SMILES_list_no_na[10001:nrow(CAS_SMILES_list_no_na),2], "../data/excel_references/QSAR_SMILES_list[10-15k].txt", row.names = F, col.names = F, quote = F, sep = "\t")
+```
+
+```{r}
+# list of models used for QSAR estimations:
+QSAR_model_list <- read.delim("../data/excel_references/QSAR_output/report_summary[1-5k].txt", sep = "\t", col.names = T, na.strings = c("[Error]-", "", "NA"))[1:19,]
+QSAR_result_names <- names(read.delim("../data/excel_references/QSAR_output/report_summary[1-5k].txt", sep = "\t", skip = 21, na.strings = c("[Error]-", "", "NA")) %>% 
+  # remove all predictions columns and keep the assessment columns
+  select(!contains(c("prediction", "Classification", "SarPy", "DEMETRA"))))[-c(1:3)]
+
+
+VEGA_QSARS <- cbind(
+  CAS_SMILES_list_no_na, 
+  bind_rows(
+    read.delim("../data/excel_references/QSAR_output/report_summary[1-5k].txt", sep = "\t", skip = 21#, na.strings = c("[Error]-", "", "NA")
+               ),
+    read.delim("../data/excel_references/QSAR_output/report_summary[5k-10k].txt", sep = "\t", skip = 21#, na.strings = c("[Error]-", "", "NA")
+               ),
+    read.delim("../data/excel_references/QSAR_output/report_summary[10k-15k].txt", sep = "\t", skip = 21#, na.strings = c("[Error]-", "", "NA")
+               ) %>% 
+      mutate(Daphnia.Magna.LC50.48h..DEMETRA..prediction...log.mol.l.. = as.double(Daphnia.Magna.LC50.48h..DEMETRA..prediction...log.mol.l..)) # this col is read as "character" in only this document
+    ) %>% 
+  select(-c(No., tId)
+  ) %>% 
+  rename(SMILES_VEGA = SMILES)
+  ) %>% 
+  # remove all predictions columns and keep the assessment columns
+  select(!contains(c("prediction", "Classification", "SarPy", "DEMETRA"))) %>%  
+  # Transforming the assessment columns into numeric effect concentrations and keeping the quality parameter in separate column 
+    separate(Fish.Chronic..NOEC..Toxicity.model..IRFMN..assessment, c("Fish_Chronic_NOEC_IRFMN_NOEC_mgL", "Fish_Chronic_IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>% 
+    separate(Daphnia.Magna.Chronic..NOEC..Toxicity.model..IRFMN..assessment, c("D.magna_Chronic_NOEC_IRFMN_NOEC_mgL", "D.magna_Chronic_IRFMN_eval"), convert = TRUE, sep = (" mg/L "), extra = "merge") %>% 
+    separate(Algae.Chronic..NOEC..Toxicity.model..IRFMN..assessment, c("Algae_Chronic_NOEC_IRFMN_NOEC_mgL", "Algae_Chronic_IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>% 
+    separate(Fish.Acute..LC50..Toxicity.model..IRFMN..assessment, c("Fish_Acute_LC50_IRFMN_mgL", "Fish_Acute_IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Fish.Acute..LC50..Toxicity.model..NIC..assessment, c("Fish_Acute_LC50_NIC_mgL", "Fish_Acute_NIC_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Fish.Acute..LC50..Toxicity.model..KNN.Read.Across..assessment, c("Fish_Acute_LC50_KNN_mgL", "Fish_Acute_KNN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Fish.Acute..LC50..Toxicity.model..IRFMN.Combase..assessment, c("Fish_Acute_LC50_IRFMN.Combase_mgL", "Fish_Acute_IRFMN.Combase_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Fathead.Minnow.LC50.96h..EPA..assessment, c("Fathead_Minnow_Acute_LC50_EPA_mgL", "Fathead_Minnow_Acute_EPA_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Fathead.Minnow.LC50.model..KNN.IRFMN..assessment, c("Fathead_Minnow_Acute_LC50_KNN.IRFMN_mgL", "Fathead_Minnow_Acute_KNN.IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>% # ECOTOX 6.1.1. Short-term toxicity to fish
+    separate(Guppy.LC50.model..KNN.IRFMN..assessment, c("Guppy_Acute_LC50_KNN.IRFMN_mgL", "Guppy_Acute_KNN.IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>% # ECOTOX 6.1.1. Short-term toxicity to fish
+    separate(Daphnia.Magna.Acute..EC50..Toxicity.model..IRFMN..assessment, c("D.magna_Acute_EC50_IRFMN_mgL", "D.magna_Acute_IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Daphnia.Magna.LC50.48h..EPA..assessment, c("D.magna_Acute_LC50_EPA_mgL", "D.magna_Acute_EPA_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    #separate(Daphnia.Magna.LC50.48h..DEMETRA..assessment, c("D.magna_Acute_LC50_DEMETRA_mgL", "D.magna_Acute_DEMETRA_eval"), sep = (paste(c(" mg/L ", " mg/l"), collapse = "|")), convert = TRUE, extra = "merge") %>%
+    separate(Daphnia.Magna.Acute..EC50..Toxicity.model..IRFMN.Combase..assessment, c("D.magna_Acute_EC50_IRFMN.Combase_mgL", "D.magna_Acute_IRFMN.Combase_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Algae.Acute..EC50..Toxicity.model..IRFMN..assessment, c("Algae_Acute_EC50_IRFMN_mgL", "Algae_Acute_IRFMN_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    separate(Algae.Acute..EC50..Toxicity.model..ProtoQSAR.Combase..assessment, c("Algae_Acute_EC50_ProtoQSAR.Combase_mgL", "Algae_Acute_ProtoQSAR.Combase_eval"), sep = (" mg/L "), convert = TRUE, extra = "merge") %>%
+    # Assigning columns as numeric type
+    mutate(
+      across(contains("_mgL"), ~ as.numeric(.x)),
+  # removing redundant text in quality parameter column
+      across(contains("_eval"), ~ as.character(gsub("\\(", "", .x))),
+      across(contains("_eval"), ~ as.character(gsub(" reliability)", "", .x))),
+      across(contains("_eval"), ~ as.character(gsub(" value)", "", .x)))
+      ) 
+
+
+VEGA_EC10 <- VEGA_QSARS %>%
+  mutate(
+    # Tranforming data reported as 0 mg/L which further down creates infinite avlogHC50 values. these are obviously misrepresenting the toxicity.
+    across(contains("_mgL"), ~ na_if(.x, 0)),
+    # Acute EC50 to Chronic EC10eq conversion
+    across(contains("Acute_EC50"), ~ .x/2), 
+    # Acute LC50 to Chronic EC10eq conversion
+    across(contains("Acute_LC50"), ~ .x/2), 
+    # Chronic NOEC to Chronic EC10eq conversion
+    across(contains("Chronic_NOEC"), ~ .x/0.6), 
+    ) %>%  
+  # Changing names after the Chronic EC10eq
+  setNames(gsub(paste(c("Acute_EC50", "Acute_LC50", "Chronic_NOEC"), collapse = "|"), "Chronic_EC10eq", names(.))) #%>%
+
+VEGA_summary <- gather(VEGA_EC10 %>% 
+         select(contains("_eval")), key = "QSAR_model", value) %>%
+  count(QSAR_model, value) %>%
+  spread(value, n) %>% 
+  rename(ERROR = 6) %>% 
+  select(QSAR_model, EXPERIMENTAL, GOOD, MODERATE, LOW, ERROR) %>% 
+  arrange(desc(GOOD))
+
+write.csv(VEGA_summary, "../data/excel_references/QSAR_output/VEGA_summary.csv", row.names = F)
+
+# Perform Species averages across the full QSAR Dataset
+VEGA_EC10_LQ <- VEGA_EC10 %>%
+  mutate(
+    Fish_avg = rowMeans(.[,grepl(paste(c(" Fish_Chronic_EC10eq", "Fathead_Minnow_Chronic_EC10eq", "Guppy_Chronic"), collapse = "|"), colnames(VEGA_EC10))], na.rm = T),
+    Daphnia_avg = rowMeans(.[,grepl("D.magna_Chronic_EC10eq", colnames(VEGA_EC10))], na.rm = T),
+    Algae_avg = rowMeans(.[,grepl("Algae_Chronic_EC10eq", colnames(VEGA_EC10))], na.rm = T),
+    ) %>% 
+  filter_at(vars(Fish_avg, Daphnia_avg, Algae_avg), all_vars(!is.nan(.)))%>%
+  # Calculating EC20EC10eq for VEGA estimations
+  # Need to first perform a per species average. then a per substance average. Are the models based on the same species? need to dig down and check.
+  rowwise() %>% 
+  mutate(VEGA_log_Mean = mean(log10(c(Fish_avg, Daphnia_avg, Algae_avg)), na.rm = TRUE),
+         sd_VEGA_log_Mean = sd(log10(c(Fish_avg, Daphnia_avg, Algae_avg)), na.rm = TRUE), 
+         ) %>% 
+  ungroup() %>% 
+  mutate(logHC20EC10eq_VEGA = VEGA_log_Mean + (sd_VEGA_log_Mean * -0.842),
+         CRF_VEGA = 0.2/10^logHC20EC10eq_VEGA) # Concentration-response slope factor calculation based on all available data)
+
+# Perform Species averages across the High-quality QSAR Dataset
+VEGA_EC10_HQ <- VEGA_EC10 %>% 
+  mutate(
+    Fish_Chronic_EC10eq_IRFMN_mgL = case_when(Fish_Acute_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ as.numeric(Fish_Chronic_EC10eq_IRFMN_mgL)),
+    Fish_Chronic_EC10eq_NIC_mgL = case_when(Fish_Acute_NIC_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_NIC_mgL),
+    Fish_Chronic_EC10eq_KNN_mgL = case_when(Fish_Acute_KNN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_KNN_mgL),
+    Fish_Chronic_EC10eq_IRFMN.Combase_mgL = case_when(Fish_Acute_IRFMN.Combase_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_IRFMN.Combase_mgL),
+    Fathead_Minnow_Chronic_EC10eq_EPA_mgL = case_when(Fathead_Minnow_Acute_EPA_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fathead_Minnow_Chronic_EC10eq_EPA_mgL),
+    Fathead_Minnow_Chronic_EC10eq_KNN.IRFMN_mgL = case_when(Fathead_Minnow_Acute_KNN.IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fathead_Minnow_Chronic_EC10eq_KNN.IRFMN_mgL),
+    D.magna_Chronic_EC10eq_IRFMN_mgL = case_when(D.magna_Acute_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN_mgL),
+    D.magna_Chronic_EC10eq_EPA_mgL = case_when(D.magna_Acute_EPA_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_EPA_mgL),
+    D.magna_Chronic_EC10eq_IRFMN.Combase_mgL = case_when(D.magna_Acute_IRFMN.Combase_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN.Combase_mgL),
+    Guppy_Chronic_EC10eq_KNN.IRFMN_mgL = case_when(Guppy_Acute_KNN.IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Guppy_Chronic_EC10eq_KNN.IRFMN_mgL),
+    Algae_Chronic_EC10eq_IRFMN_mgL = case_when(Algae_Acute_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_IRFMN_mgL),
+    Algae_Chronic_EC10eq_ProtoQSAR.Combase_mgL = case_when(Algae_Acute_ProtoQSAR.Combase_eval == "LOW" ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_ProtoQSAR.Combase_mgL),
+    Fish_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(Fish_Chronic_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_IRFMN_NOEC_mgL),
+    D.magna_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(D.magna_Chronic_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN_NOEC_mgL),
+    Algae_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(Algae_Chronic_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_IRFMN_NOEC_mgL)
+    ) %>% 
+  mutate(across(ends_with("_eval"), ~ gsub("LOW", as.numeric(NA), .))) %>% 
+  mutate(
+    Fish_avg = rowMeans(.[,grepl(paste(c(" Fish_Chronic_EC10eq", "Fathead_Minnow_Chronic_EC10eq", "Guppy_Chronic"), collapse = "|"), colnames(VEGA_EC10))], na.rm = T),
+    Daphnia_avg = rowMeans(.[,grepl("D.magna_Chronic_EC10eq", colnames(VEGA_EC10))], na.rm = T),
+    Algae_avg = rowMeans(.[,grepl("Algae_Chronic_EC10eq", colnames(VEGA_EC10))], na.rm = T),
+    ) %>% 
+  filter_at(vars(Fish_avg, Daphnia_avg, Algae_avg), all_vars(!is.nan(.)))%>%
+  # Calculating EC20EC10eq for VEGA estimations
+  # Need to first perform a per species average. then a per substance average. Are the models based on the same species? need to dig down and check.
+  rowwise() %>% 
+  mutate(VEGA_log_Mean = mean(log10(c(Fish_avg, Daphnia_avg, Algae_avg)), na.rm = TRUE),
+         sd_VEGA_log_Mean = sd(log10(c(Fish_avg, Daphnia_avg, Algae_avg)), na.rm = TRUE), 
+         ) %>%  
+  ungroup() %>% 
+  mutate(logHC20EC10eq_VEGA = VEGA_log_Mean + (sd_VEGA_log_Mean * -0.842),
+         CRF_VEGA = 0.2/10^logHC20EC10eq_VEGA) # Concentration-response slope factor calculation based on all available data)
+
+write.csv(VEGA_EC10_LQ, "../data/excel_references/QSAR_output/VEGA_EC10_LQ.csv", row.names = F)
+write.csv(VEGA_EC10_HQ, "../data/excel_references/QSAR_output/VEGA_EC10_HQ.csv", row.names = F)
+```
+
+
+## statistical comparisons of VEGA QSAR data <-> Empirical data 
+```{r}
+HESTIA_HC20_dataset <- read.csv("../results/HESTIA_HC20_dataset.csv")
+# Comparing Experimental to Estimated data (ECOTOX ==/== VEGA_QSAR)
+
+# defining a dataset with merged VEGA estimations and empirical data
+plot_dataset <- left_join(x = HESTIA_HC20_dataset %>% 
+                            select(CAS.Number, HC20EC10eq, HC20) %>% 
+                            filter(!is.na(HC20)),
+                          y = VEGA_EC10_LQ %>% 
+                              select(CAS.Number, logHC20EC10eq_VEGA, CRF_VEGA),
+                          by = "CAS.Number") %>% 
+                  mutate(ratio_exp_est = CRF_VEGA/HC20)%>% 
+                            filter(!is.na(ratio_exp_est))
+
+plot_dataset_HQ_Data <- left_join(x = HESTIA_HC20_dataset %>% 
+                            select(CAS.Number, HC20EC10eq, HC20) %>% 
+                            filter(!is.na(HC20)),
+                          y = VEGA_EC10_HQ %>% 
+                              select(CAS.Number,logHC20EC10eq_VEGA, CRF_VEGA),
+                          by = "CAS.Number") %>% 
+                  mutate(ratio_exp_est = CRF_VEGA/HC20) %>% 
+                            filter(!is.na(ratio_exp_est))
+
+# Calculating absolute differences between estimated and empirical data.
+QSAR_emp_abs_diff_df <- plot_dataset_HQ_Data %>% 
+  mutate(
+    abs_diff = abs(HC20-CRF_VEGA),
+    log_abs_diff = abs(HC20EC10eq-logHC20EC10eq_VEGA)
+         ) %>% 
+  arrange(desc(abs_diff)) 
+
+write.csv(QSAR_emp_abs_diff_df, "../data/excel_references/QSAR_output/QSAR_emp_abs_diff_df.csv", row.names = F)
+
+# plotting histogram over the absolute difference ratio
+QSAR_emp_abs_diff_df %>% 
+  ggplot(aes(x = abs_diff))+
+  geom_histogram()+
+  scale_y_log10()+
+  scale_x_log10()
+
+####
+# Building a linear model for the VEGA-empirical comparisons
+# 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+  # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+cor.test(plot_dataset$HC20, plot_dataset$CRF_VEGA)
+  
+# 2. Building a model on training data  
+# This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+model <- lm(CRF_VEGA ~ HC20, data = plot_dataset)
+# 3. Assessing the model’s fit
+# RSE can be found in the summary of a model.
+summary(model)
+# 4. Analyzing model results.
+# This finds the R Squared value of a linear regression model named model.
+summary(model)$r.squared
+
+####
+#For the HQ_Dataset
+####
+#Building a linear model for the VEGA-empirical comparisons
+# 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+  # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+cor.test(plot_dataset_HQ_Data$CRF_VEGA, plot_dataset_HQ_Data$HC20)
+  
+# 2. Building a model on training data  
+# This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+model_2 <- lm(CRF_VEGA ~ HC20, data = plot_dataset_HQ_Data)
+# 3. Assessing the model’s fit
+# RSE can be found in the summary of a model.
+summary(model_2)
+# 4. Analyzing model results.
+# This finds the R Squared value of a linear regression model named model.
+summary(model_2)$r.squared
+####
+```
+
+# Data visualization
+```{r}
+# Comparing CRF ratios against each other. from experimental vs. estimated data.
+plot_dataset %>% 
+      arrange(desc(ratio_exp_est)) %>% 
+    ggplot(aes(x = reorder(CAS.Number, -ratio_exp_est) , y = ratio_exp_est)) +
+    geom_point(size = 1) +
+    geom_line(aes(y = 1), color = "red")+
+    geom_hline(yintercept = c(1E2, 1, 1E-2), linetype="dashed", color = "red") + # Better visualization of how much data is within 4 orders of magnitude variation around ratio = 1.
+    scale_y_log10()
+
+# Comparing data points of CRF_all & CRF_vega
+ QSAR_plot <- plot_dataset %>% 
+    ggplot(aes(x = HC20, y = CRF_VEGA)) +
+    geom_point(size = 1) +
+    #geom_smooth(method = "lm", color ="red", size = 1) +
+    geom_text(aes(x = 500, y = 1000), label = print(paste0("R^2 =", summary(model)$r.squared))) +
+    #geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_y_log10() +
+    scale_x_log10() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+    ylab("CRF VEGA QSAR") +
+    xlab("CRF empirical data") +
+     ggtitle(paste("Comparison between Empirical data to (all) QSAR estimations\n of HC20-values", ", ", nrow(plot_dataset %>% filter(!is.na(CRF_VEGA))), " substances", sep = ""))
+
+QSAR_plot 
+    #ggsave("figures/QSAR_comparison_LQ.png", QSAR_plot, dpi = 300)
+
+ # Comparing data points of CRF_all & CRF_vega for HQ_data
+QSAR_plot_HQ <- plot_dataset_HQ_Data %>% 
+    ggplot(aes(x = HC20, y = CRF_VEGA)) +
+    geom_point(size = 1) +
+    #geom_smooth(method = "lm", color ="violet", size = 1) +
+    geom_text(aes(x = 500, y = 1000), label = print(paste0("R^2 =", summary(model_2)$r.squared))) +
+    #geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_y_log10() +
+    scale_x_log10() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+    ylab("CRF VEGA QSAR") +
+    xlab("CRF empirical data") +
+    ggtitle(paste("Comparison between Empirical data to (HQ) QSAR estimations\n of HC20-values", ", ", nrow(plot_dataset_HQ_Data %>% filter(!is.na(CRF_VEGA))), " substances", sep = ""))
+
+QSAR_plot_HQ 
+    ggsave("figures/QSAR_comparison_HQ.png", QSAR_plot_HQ, dpi = 300)
+
+
+  
+```
+
+
+### Comparisons removed low quality 
+VEGA_GOOD <-> Experimental (ECOTOX)
+```{r}
+# Comparing Experimental to Estimated data (ECOTOX ==/== VEGA_QSAR)
+
+# defining a dataset with merged VEGA estimations and empirical data
+plot_dataset_good <- merge(x = HC20_dataset,
+                          y = VEGA_GOOD %>% 
+                              select(-c(ID, SMILES, SMILES_VEGA)),
+                          by = "CAS.Number") %>% 
+                  filter(!is.na(CRF_VEGA),
+                         !is.na(CRF_best)) %>% 
+                  mutate(ratio_exp_est = CRF_best/CRF_VEGA)
+
+#Building a linear model for the VEGA-empirical comparisons
+  # 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+    # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+  cor.test(plot_dataset_good$CRF_all, plot_dataset_good$CRF_VEGA)
+    # ok, so the coefficient is -0.03341369. very close to 0 here as well, but on the other side of 0.
+  # 2. Building a model on training data  
+  # This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+  model_good <- lm(CRF_VEGA ~ CRF_all, data = plot_dataset_good)
+  
+  # 3. Assessing the model’s fit
+  # RSE can be found in the summary of a model.
+  summary(model_good)
+  # 4. Analyzing model results.
+  # This finds the R Squared value of a linear regression model named model.
+  summary(model_good)$r.squared
+
+# Comparing CRF ratios against each other. from experimental vs. estimated data.
+plot_dataset_good %>% 
+      arrange(desc(ratio_exp_est)) %>% 
+    ggplot(aes(x = reorder(CAS.Number, -ratio_exp_est) , y = ratio_exp_est)) +
+    geom_point(size = 1) +
+    geom_line(aes(y = 1), color = "red")+
+    geom_hline(yintercept = c(1E2, 1, 1E-2), linetype="dashed", color = "red") + # Better visualization of how much data is within 4 orders of magnitude variation around ratio = 1.
+    scale_y_log10()
+# Comparing data points of CRF_all & CRF_vega
+  plot_dataset_good %>% 
+    ggplot(aes(x = CRF_all, y = CRF_VEGA)) +
+    geom_point(size = 1) +
+    geom_text(aes(x = 250, y = 10), label = print(paste0("R^2 =", summary(model_good)$r.squared))) +
+    geom_smooth(method = "lm", color ="red", size = 1) +
+    geom_abline(intercept = 0, slope = 1, color = "blue") +
+    scale_y_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    scale_x_log10(breaks = c(1E-3, 1E-2, 1E-1, 1E-0, 1E1, 1E2, 1E3)) +
+    theme_light(base_size = 8) +
+    ylab("CRF VEGA QSAR") +
+    xlab("CRF empirical data") +
+    ggtitle("Empirical-QSAR impact indicator comparison of substances \n 
+            low quality QSAR data removed. Blue line = 1:1 comparison")
+
+```
+
+

@@ -1,0 +1,170 @@
+---
+title: "Physicochemical_properties"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(verbose = TRUE, warning = FALSE)
+    #library(rmarkdown)
+    #library(xlsx)
+    #library(webchem)
+    library(tidyverse)
+```
+
+# PHYSICOCHEMICAL Properties 
+Close to all of the physicochemical information is queried from OECD QSAR Toolbox. The task to collect physicochemcal information for substances started from the PesticideAI.csv-file off of the HESTIA.EARTH repository. CAS numbers had SMILES configurations are matched in the `Translating_CAS_to_SMILES_via_PubChem.R`. Physicochemical information was collected separately from the ecotoxicological information.
+the file `data/excel_references/CAS_CID_list_final.txt` generated in `Translating_CAS_to_SMILES_via_PubChem.R` is used for gathering of Physicochemical substance data. I select "NO" when queried to search for empty SMILES where there are CAS numbers.
+
+## Wrangling operation of the QSAR Toolbox output
+```{r Physchem_prop}
+
+NEW_PHYSCHEM <- rbind(
+  # The main dataset from OECD QSAR Toolbox
+  # Some wrangling and sub() expressions are needed to read the data as a useful format from the raw output. But this enables reading of an unprocessed raw output file from OECD QSAR Toolbox
+  read.csv("../data/QSAR_Toolbox_physchem_data_2023-03-24_RAW.csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE) %>% 
+    select(-X., -contains("value", ignore.case = T)) %>% 
+    filter(Predefined.substance.type != "Multi constituent") %>% 
+    mutate(
+      across(8:length(names(.)), ~ sub("No value", "", .)),
+      across(8:length(names(.)), ~ sub(",", ".", .)),
+      across(8:length(names(.)), ~ sub("\\s.*", "", .)), # <- removes anything after a blankspace which works great for removing all unit annotations!
+      across(8:length(names(.)), ~ as.numeric(.))
+      ), 
+  # The missing CAS.Numbers with no data.
+  read.csv("../data/QSAR_Toolbox_physchem_data_Envirotox_2023-03-24_RAW.csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE)
+  %>% 
+    select(-X., -contains("value", ignore.case = T)) %>% 
+    filter(Predefined.substance.type != "Multi constituent") %>% 
+    mutate(
+      across(8:length(names(.)), ~ sub("No value", "", .)),
+      across(8:length(names(.)), ~ sub(",", ".", .)),
+      across(8:length(names(.)), ~ sub("\\s.*", "", .)), # <- removes anything after a blankspace which works great for removing all unit annotations!
+      across(8:length(names(.)), ~ as.numeric(.))
+      )
+    ) %>% 
+  # 8 substances have been described with invalid CASRN in the PesticideAI.csv file. 
+  filter(!grepl("Invalid", CAS.Number)) %>% 
+  # Multi constituent substances are are filtered out. I have no good way to deal with these substances (YET!)
+  #filter(Predefined.substance.type != "Multi constituent") %>% 
+  # Removing fugacity models of biodegradation half-lives. not needed.
+  select(-starts_with("FM")) %>% 
+  # # Making commas into dots for numeric conversion
+  # mutate_at(vars(c(8:26)), ~ as.numeric(str_replace_all(., ",", "."))
+  #           # For Multi constituent substances, I dont have a way to deal with the delimiters ";" across the whole dataset. NAs are being introduced across instead. I skip these substaces for now.
+  #           #vars(c(8:27)), ~ as.numeric(sub(";[^;*$]", "", test$label)) 
+  #           ) %>% 
+  # Unit conversions to USEtox-friendly format
+  mutate(log.Kow = 10^log.Kow, # Converting to L/L, removing logarithmic value
+         Exp.Vapor.Pressure = 133.3*Exp.Vapor.Pressure, # Converting from mmHg to Pascal
+         Selected.Vapor.Pressure = 133.3*Selected.Vapor.Pressure, # Converting from mmHg to Pascal
+         Exp.Henrys.Law.Constant = 101325*Exp.Henrys.Law.Constant, # Converting from atm to Pa
+         BAF..upper.trophic. = 10^BAF..upper.trophic., # Removing logarithmm
+         Exp.Log.P = 10^Exp.Log.P,  # Removing logarithm
+         #across(starts_with("FM"), ~ log(2)/(.x*3600))  # Converting all half-time(h) into degradation rates 1/s ###(VERY EFFICIENT OPERATION COMPARED TO PREVIOUS CONVERSIONS!!!) ###
+         ) %>% 
+  # Renaming columns to better fit USEtox input format data frame
+  rename(Est.Kow_L.L = log.Kow,
+         Exp.Kow_L.L = Exp.Log.P,
+         Koc_L.kg_MCI = Koc..MCI.,
+         Biodeg_BIOWIN3 = Ultimate.biodeg..Biowin.3.,
+         Exp.Water.Solubility_mg.L = Exp.Water.Solubility,
+         Exp.Vapor.Pressure_Pa = Exp.Vapor.Pressure,
+         BAF_L.Kg = BAF..upper.trophic.,
+         pKa.gain = Basic.pKa..OASIS.Regression.,
+         pKa.loss = Acidic.pKa..OASIS.Regression.,
+         MW.g.mol = Molecular.Weight) %>% 
+
+  # Making a prioritization strategy, prioritizing experimental over estimated data into a new column, with an annotation column.
+  mutate(
+    # Biodegradation rates needs conversion from probability
+    Biodeg_1s = case_when(
+      Biodeg_BIOWIN3 > 4.75 & Biodeg_BIOWIN3 < 5 ~ 4.7E-5,
+      Biodeg_BIOWIN3 > 4.25 & Biodeg_BIOWIN3 <= 4.75 ~ 6.4E-6,
+      Biodeg_BIOWIN3 > 3.75 & Biodeg_BIOWIN3 <= 4.25 ~ 3.4E-5,
+      Biodeg_BIOWIN3 > 3.25 & Biodeg_BIOWIN3 <= 3.75 ~ 9.3E-7,
+      Biodeg_BIOWIN3 > 2.75 & Biodeg_BIOWIN3 <= 3.25 ~ 5.3E-7,
+      Biodeg_BIOWIN3 > 2.25 & Biodeg_BIOWIN3 <= 2.75 ~ 2.1E-7,
+      Biodeg_BIOWIN3 > 1.75 & Biodeg_BIOWIN3 <= 2.25 ~ 1.3E-7,
+      Biodeg_BIOWIN3 <= 1.75 ~ 4.7E-5
+      ),
+    # applying the division factors for extrapolating W, Sl & Sd biodegradation rates with 1:2:9 respectively, according to Usetox manual.
+    KdegW = Biodeg_1s,
+    KdegSl = Biodeg_1s/2,
+    KdegSd = Biodeg_1s/9,
+    # Degradation rates in air is different. Prioritization of OH rate constant method, taking Episuite's SUMMARY (AOP v1.92): HYDROXYL RADICALS (25 deg C) 
+    KdegA = case_when(is.na(OVERALL.OH.rate.constant) ~ as.numeric(NA),
+                                             #!is.na(OVERALL.OH.Half.life_d) & is.na(OVERALL.OH.rate.constant_cm3_molecule.sec) ~ log(2)/(OVERALL.OH.Half.life_d*86400),
+                                             TRUE ~ (OVERALL.OH.rate.constant * 1.5E6)/2),
+    Kow_L.L = case_when(is.na(Exp.Kow_L.L) ~ Est.Kow_L.L,
+                       TRUE ~ Exp.Kow_L.L),
+    pKaChemClass = case_when(!is.na(pKa.loss) & is.na(pKa.gain) ~ "acid",
+                           is.na(pKa.loss) & !is.na(pKa.gain) ~ "base",
+                           !is.na(pKa.loss) & !is.na(pKa.gain) ~ "amphoter",
+                           Predefined.substance.type == "Multi constituent" ~ "undefined",
+                           is.na(pKa.loss) & is.na(pKa.gain) ~ "neutral"),
+         # According to the USEtox manual, The estimation procedures (regression equations) are only suitable under certain conditions. "The regressions used in USEtox for calculating the Koc for the electrolytes are suited for acids within the pKa range 0–12 and with a log Kow between -2.18 and 8.50. For bases the pKa needs to be above 2 and log Kow is between -1.66 and 7.03 (Franco & Trapp 2008)."
+         Koc_L.kg_MCI = case_when(pKaChemClass == "acid" | pKaChemClass == "amphoter" & pKa.loss <12 & pKa.loss > 0 & log(Kow_L.L) >= -2.18 & log(Kow_L.L) <= 8.5  ~ Koc_L.kg_MCI,
+                                  pKaChemClass == "base" | pKaChemClass == "amphoter" & pKa.gain >2 & log(Kow_L.L) >= -1.66 & log(Kow_L.L) <= 7.03 ~ Koc_L.kg_MCI,
+                                  pKaChemClass == "neutral" ~ Koc_L.kg_MCI),
+         Source_Kow = case_when(is.na(Est.Kow_L.L) & is.na(Exp.Kow_L.L) ~ "",
+                                is.na(Exp.Kow_L.L) ~ "Estimated",
+                             TRUE ~ "Experimental"),
+         Vapor.Pressure_Pa = case_when(is.na(Exp.Vapor.Pressure_Pa) ~ Selected.Vapor.Pressure,
+                             TRUE ~ Exp.Vapor.Pressure_Pa),
+         Source_Pvap = case_when(is.na(Selected.Vapor.Pressure) & is.na(Exp.Vapor.Pressure_Pa) ~ as.character(NA),
+                                 is.na(Exp.Vapor.Pressure_Pa) ~ "Estimated",
+                             TRUE ~ "Experimental"),
+         Sol_mg.L = case_when(is.na(Exp.Water.Solubility_mg.L) ~ Water.Solubility,
+                             TRUE ~ Exp.Water.Solubility_mg.L),
+         Source_Sol = case_when(is.na(Exp.Water.Solubility_mg.L) & is.na(Water.Solubility) ~ as.character(NA),
+                                 is.na(Exp.Water.Solubility_mg.L) ~ "Estimated",
+                             TRUE ~ "Experimental"),
+         kH25C_Pa.m3.mol = case_when(is.na(Exp.Henrys.Law.Constant) ~ (Vapor.Pressure_Pa*MW.g.mol)/Sol_mg.L, 
+                             TRUE ~ Exp.Henrys.Law.Constant),
+         Source_KH25C = case_when(is.na(kH25C_Pa.m3.mol)  ~ as.character(NA),
+                                  is.na(Exp.Henrys.Law.Constant) ~ "Calculated",
+                              TRUE ~ "Experimental")
+         ) %>% 
+    select(CAS.Number, SMILES, Molecular.formula, Predefined.substance.type, MW.g.mol, pKaChemClass, pKa.gain, pKa.loss, Kow_L.L, Koc_L.kg_MCI, kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L, KdegA, KdegW, KdegSl, KdegSd, BAF_L.Kg, starts_with("Source"))
+
+
+NEW_PHYSCHEM <- rbind(
+  NEW_PHYSCHEM,
+# Adding in the missing Physchem data for the dataset
+# Dependency: 
+  read.csv("../data/excel_references/Missing_envirotox_data.csv", header = T, sep = ",") %>% 
+  select(-X) %>% # I have a loose file here which was interdependent on the HESTIA_HC20_DB.Rmd file. This let go of dependency.
+  filter(!CAS.Number %in% NEW_PHYSCHEM$CAS.Number)
+)
+
+
+```
+
+
+```{r}
+# Just want to look up molecular weights via PubChem
+# Read the CAS_CID_SMILES object output from the file "../code/Translating_CAS-to_SMILES_via_PubChem.R"
+mw_df <- left_join(NEW_PHYSCHEM, 
+          read.csv("../data/excel_references/CAS_CID_list_final.csv") %>% 
+            rename(PubChemId = CID) %>% 
+            # PubChemId is classed as an integer in the CAS_CID_list. Need it to be character class
+            mutate(PubChemId = as.character(PubChemId)) %>% 
+            select(CAS.Number, PubChemId), 
+          by = "CAS.Number")
+
+NEW_PHYSCHEM$PC_MW.g_mol <- as.vector(pc_prop(mw_df$PubChemId, properties = "MolecularWeight", verbose = T)[[2]])
+
+```
+
+```{r}
+write.csv(NEW_PHYSCHEM, "data/PHYSCHEM_INFO.csv", row.names = F)
+#write.xlsx(data.frame(NEW_PHYSCHEM %>% filter(is.na(SMILES)) %>% distinct(CAS.Number)), "Missing_Physchem_CAS.xlsx", sheetName = "DATA", col.names = T, row.names = F, showNA = F)
+
+rm(list = c("Inorganic_vector_Enviro", "Envirotox_subst"))
+
+```
+
+
+

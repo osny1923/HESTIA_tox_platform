@@ -1,0 +1,375 @@
+---
+title: "HESTIA_HC20_Stats_and_summary_tables"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Dir & Libraries
+
+```{r setup}
+knitr::opts_chunk$set(message=FALSE, warning=FALSE, verbose = TRUE)
+# These libraries are used for analysis
+    library(rmarkdown)
+    library(xlsx)
+    library(tidyverse)
+    library(readr)
+
+```
+
+### Loading HESTIA Dataset
+
+Loading and running the HESTIA FINAL Dataset
+```{r}
+HESTIA_BASE_EnviroTox_FILL <- read.csv("../results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv")
+HESTIA_HC20_dataset <- read.csv("../results/HESTIA_HC20_dataset.csv")
+```
+
+
+### Loading QSAR Estimations Dataset
+
+Loading and running the Envirotox_DB.Rmd-code in the background to have a cleaner workspace
+```{r}
+VEGA_HC20 <- read.csv("../data/VEGA_HC20.csv")
+```
+
+
+# Statistics - Data availability vs. Variation
+I got the idea to see if the data availability of a substance drives the CoV up.
+The idea is that from what i observe in the graphs, the more data points, the more wildly scattered data will be. 
+
+Setting up a linear regression to see if n_datapoints follows the CoV.
+since the GOOD quality data assumes >=5 Species, and 3= Taxonomy.Groups, I want to test those data. I also think that the large proportion of n=1 will drive a regression towards significance.
+
+
+```{r}
+# Selecting the data. similar method as with the plots, where i have the summary (second averaging operation) with CRF values and a quality filter
+QSe_over_1.77 <- HC20EC10eq_dataset_second_avg %>% 
+        filter(QSe > 1.77) %>% 
+        select(CAS.Number, CoV_sp_mean_EC10eq, n_best)
+
+# Super interesting plot.
+# The median CoV per species will fluctuate less when more data points are available, it seems like. yet, the CoV increases slightly.
+ggplot(Q_dat_averages %>% 
+    filter(CAS.Number %in% QSe_over_1.77$CAS.Number,
+           !is.na(median_sp_CoV)
+           #CAS.Number != "98079-51-7"
+           ),
+    aes()) +
+  geom_point(aes(x = n_sp_median, y = median_sp_CoV, color = as.factor(n_Taxonomy.Group))) +
+  geom_smooth(aes(x = n_sp_median, y = median_sp_CoV), color = "red")+
+  #geom_point(aes(x = n, y = median_sp_Cov), color = "green") +
+  #geom_point(aes(x = n, y = mean_sp_Cov), color = "red") +
+  scale_x_log10() +
+  scale_color_brewer(palette="Spectral") +
+  xlab("n median data points (log10 scale)") +
+  ylab("median Species CoV") +
+  theme(legend.position = "top")
+
+
+```
+
+
+## Removing outliers - exploration
+
+The Outlier removal is difficult. 
+Identifying outliers by looking at quantiles will always identify an outlier in every data grouping.
+If data are grouped by Substance & Species, there are 28 579 groups and 10 408 outliers are removed.
+If data are grouped by Substance & Taxonomy.Group, there are 10 432 groups and 2 661 outliers are removed.
+If data are grouped only by Substance, there are 4 422 groups and 772 outliers are removed.
+
+Playing around with the latter dataset (772 outliers): 
+- 2 data points are very far out in the higher range (looking at the non-log y-scale): CAS 12111-24-9 & 13462-86-7
+- 5 data points are very far out in the lower range (looking at the log y-scale): CAS 1330-16-1, 2279-76-7, 473-55-2, 68327-15-1, 91465-08-6
+
+How are these values represented among their groupings by Substance & Species?
+
+
+Outliers need to be removed. There are some extreme cases where effect concentrations are reported as >7 orders of magnitude more/less than it's closest following effect     concentration.
+This will be dealt with by grouping data after
+1. Substance (Cas.Number)
+2. Acute or chronic data point, since these may vary a lot  (AcuteChronic)
+3. Species.
+4. remove outlier by EC10eq column.
+
+
+```{r, eval = FALSE}
+# Removing outliers from the dataset:
+# Copied code: 
+#iris %>% # object to manipulate
+#  group_by(Species) %>% # Grouping by certain variables
+#  remove_outlier(Petal.Length, 0.1) %>% # removing the outliers, defined by object and the magnitude <- writen function found on Stackoverflow. Not planning on using it. I want a more neat #dplyr-ish operation.
+#  ungroup() # returning the data frame
+
+#Data %>%
+#  group_by(BatchNo) %>%
+#  filter(ActualValue <= quantile(ActualValue, 0.99), ActualValue >= quantile(ActualValue, 0.01)) %>%
+#  group_by(BatchNo, SetValue) %>%
+#  summarize(Mean = mean(ActualValue), SD = sd(ActualValue))
+
+# Trying it out on the HESTIA_HC20_DB_harmonized dataset
+nrow(Q_dat %>% 
+       distinct(CAS.Number)) 
+
+nrow(Q_dat %>%
+  group_by(CAS.Number) %>%
+   # summarise(n = n()))
+  filter(EC10eq <= quantile(EC10eq, 0.01), 
+         EC10eq >= quantile(EC10eq, 0.99)) %>%
+  ungroup() 
+)
+
+setdiff(x = Q_dat,
+        y = Q_dat %>% 
+            group_by(Species) %>%
+            filter(EC10eq <= quantile(EC10eq, 0.9999), EC10eq >= quantile(EC10eq, 0.0001)) %>%
+            ungroup()
+        ) %>% 
+      arrange(EC10eq)
+
+# looking at the 772 outliers defined after grouping only Substance.
+ggplot(Q_dat %>%
+          group_by(CAS.Number) %>%
+           # summarise(n = n()))
+          filter(EC10eq <= quantile(EC10eq, 0.01), 
+                 EC10eq >= quantile(EC10eq, 0.99),
+                 EC10eq < 1e-5) %>%
+          ungroup(),
+       aes(x = CAS.Number, y = EC10eq, color = Taxonomy.Group)
+  ) +
+  geom_point() +
+  scale_y_log10()
+
+# 2 data points are very far out in the higher range (looking at the non-log y-scale)
+# 5 data points are very far out in the lower range (looking at the log y-scale)
+
+# How are these values represented among their groupings by Substance & Species?
+Q_dat %>%
+  filter(CAS.Number %in% c("12111-24-9", "13462-86-7", "1330-16-1", "2279-76-7", "473-55-2", "68327-15-1", "91465-08-6"))
+# A commonality for these substances have only one effect concentration represented, each being determined as an outlier!
+# Could it possibly be so that my quite strict filter identifies substances that are uniquely represented within the dataset??
+# on the other hand, these will not be represented in the final averaging operation...
+nrow(Q_dat %>% 
+       distinct(CAS.Number)) #4422 substances
+
+
+# Are all of the outliers existing within this "CRF_all == NA"?
+outlier_by_substance <- Q_dat %>%
+          group_by(CAS.Number) %>%
+           # summarise(n = n()))
+          filter(EC10eq <= quantile(EC10eq, 0.01), 
+                 EC10eq >= quantile(EC10eq, 0.99)) %>%
+          ungroup() 
+
+nrow(HC20EC10eq_dataset_second_avg %>% 
+      filter(!is.na(CRF_all),
+             CAS.Number %in% outlier_by_substance$CAS.Number)
+     ) 
+# well, 738 of these outliers are defined as "CRF == NA".
+HC20EC10eq_dataset_second_avg %>% 
+      filter(is.na(CRF_all),
+             CAS.Number %in% outlier_by_substance$CAS.Number)
+# 17 of these have two data points, resulting in a CRF value, but no CoV.
+Outlier_dub_cas <- HC20EC10eq_dataset_second_avg %>% 
+      filter(!is.na(CRF_all),
+             CAS.Number %in% outlier_by_substance$CAS.Number) %>% 
+  distinct(CAS.Number)
+# what about the rest data??
+# since we have 772 "outliers", 738 leads to no CRF calculation, 17 will have a CRF (based on 2 data points)
+# 755 are available in the HC20EC10eq_dataset_second_avg dataset.
+# where did the 17 other datas go? 
+Q_dat %>% 
+    filter(CAS.Number %in% Outlier_dub_cas$CAS.Number)
+# These 17 substances have each 2 data points from the same publication respectively.
+
+# Is there a conversion of effect concentration going on??
+view(HESTIA_HC20_DB_harmonized %>% 
+    filter(Author == "Knauf,W., and E.F. Schulze"))
+# for CAS 1021-19-8 in the "Knauf,W., and E.F. Schulze" publication, all Value.Units are given as ppm. and many of the datas are given as a range.
+# I think the "data in range" conversions and definitions are driving some outliers.
+
+# Perhaps could justify removal of all non- "=" values
+HESTIA_HC20_DB %>% 
+    filter(!Duration.Unit %in% c("Second(s)","min", "h", "d", "wk", "mo", "yr"))
+       
+```
+
+
+# Data Wrangling Summary tables
+```{r}
+# Summary of taxonomy information
+write.xlsx(
+  x = 
+   Q_dat %>% 
+      group_by(Taxonomy.Group,Endpoint_conv, AcuteChronic) %>% 
+      summarise(n = n()) %>% 
+      pivot_wider(names_from = c(Endpoint_conv, AcuteChronic), values_from = n) %>% 
+      mutate(Sum_Species = sum(across(contains("_")))) %>%
+      ungroup() %>%
+      bind_rows(summarise(
+        .,
+        across(where(is.numeric), sum),
+        across(where(is.character), ~as.character("Total")
+      ))),
+ file = "../results/summary_Taxonomy_Endpoint.xlsx",
+ sheetName = "Taxonomy_overview",
+ col.names = T,
+ #row.names = F
+ append = F
+ )
+         
+    write.xlsx(x = Q_dat %>% 
+        count(Endpoint_conv, Endpoint), 
+        file = "../data/Endpoints_overview.xlsx", 
+        sheetName = "Endpoints", col.names = T)
+      
+# VEGA QSAR quality check
+write.xlsx(x = 
+  cbind(rbind(VEGA_CF %>% 
+    count(Fish_IRFMN_eval, sort = T),
+    c(as.character(NA), 0)),
+  VEGA_CF %>% 
+    count(D.magna_IRFMN_eval, sort = T),
+  VEGA_CF %>% 
+    count(Algae_IRFMN_eval, sort = T)),
+file = "../results/HESTIA_Envirotox_Data_count_overview.xlsx",
+sheetName = "VEGA_quality_summary",
+col.names = T,
+row.names = F,
+append = T)
+
+
+```
+
+
+# Pulling some metadata from the `HESTIA_BASE_EnviroTox_FILL`
+```{r, eval=FALSE}
+
+count_overview <- HESTIA_BASE_EnviroTox_FILL %>% count(DB, Taxonomy.Group, sort = T)
+write.xlsx(count_overview, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "SP_Groups")
+
+Group_quality_summary <- HESTIA_envirotox_cfs %>% 
+    count(Group, QSe_source)
+write.xlsx(Group_quality_summary, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "Group_quality_summary", append = T)
+
+Group_summary <- HESTIA_envirotox_cfs %>% 
+    count(Group)
+write.xlsx(Group_summary, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "Group_summary", append = T)
+
+QSe_summary <- HESTIA_envirotox_cfs %>% 
+    count(QSe_source)
+write.xlsx(QSe_summary, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "CRF_Quality Overview", append = T)
+
+FULL_DB_overview <- HESTIA_BASE_EnviroTox_FILL %>% 
+    group_by(Taxonomy.Group, AcuteChronic, Endpoint_conv) %>% 
+    summarise(n = n()) %>% 
+    ungroup() %>% 
+    pivot_wider(names_from = c("AcuteChronic", "Endpoint_conv"), values_from = n)
+
+HC50_summary <- HESTIA_envirotox_EC10eq_second_avg %>% 
+    count(is.na(avlog10_HC50_EC50), USEtox_HC50_recommend)
+write.xlsx(HC50_summary, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "HC50_summary", append = T)
+
+FULL_DB_substances <- NEW_PHYSCHEM %>% 
+    filter(CAS.Number %in% HESTIA_BASE_EnviroTox_FILL$CAS.Number) %>% 
+    count(Group, sort = T) 
+write.xlsx(FULL_DB_substances, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "full_DB_substance_type_count", append = T)
+
+HESTIA_DB_overview <- Q_dat %>% 
+    group_by(Taxonomy.Group, AcuteChronic, Endpoint_conv) %>% 
+    summarise(n = n()) %>% 
+    ungroup() %>% 
+    pivot_wider(names_from = c("AcuteChronic", "Endpoint_conv"), values_from = n)
+write.xlsx(HESTIA_DB_overview, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "HESTIA_DB_endpoint_count", append = T)
+
+Envirotox_DB_overview <- HESTIA_BASE_EnviroTox_FILL %>% 
+    filter(Database == "EnviroTox") %>% 
+    group_by(Taxonomy.Group, AcuteChronic, Endpoint_conv) %>% 
+    summarise(n = n()) %>% 
+    ungroup() %>% 
+    pivot_wider(names_from = c("AcuteChronic", "Endpoint_conv"), values_from = n)
+write.xlsx(Envirotox_DB_overview, "../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "Envirotox_DB_endpoint_count", append = T)
+
+HESTIA_BASE_EnviroTox_FILL %>% 
+    filter(DB == "EnviroTox",
+           !CAS.Number %in% Q_dat$CAS.Number) %>% 
+    distinct(CAS.Number)
+
+HESTIA_HC20_DB_raw %>% 
+        count(Endpoint) %>% 
+write.xlsx("../results/HESTIA_Envirotox_Data_count_overview.xlsx", sheetName = "HESTIA_RAW_Endpoint_Count", append = T)
+
+```
+
+Counts of the database merge operation  
+
+```{r}
+# How many data points with unique substances are joined
+nrow(EnviroTox_toxDB_EC10eq %>% 
+# Removing all species taxonomic annotations given as "Genus sp."
+    filter(!grepl("sp\\.", Species)) %>% 
+# selecting all CAS from `EnviroTox_substDB` that are NOT overlapping.
+    filter(!CAS.Number %in% Q_dat$CAS.Number) %>% # <- end here to count n Data points only
+        distinct(CAS.Number) # <- count either "CAS.Number" or "Species"
+    )
+
+# How many data points with unique species are joined
+nrow(EnviroTox_toxDB_EC10eq %>% 
+# Removing all species taxonomic annotations given as "Genus sp."
+    filter(!grepl("sp\\.", Species)) %>% 
+# selecting all species that are unique to the `Q_dat` DB- 
+    filter(CAS.Number %in% Q_dat$CAS.Number,
+         !Species %in% Q_dat$Species) %>%  # <- end here to count n Data points only
+      distinct(CAS.Number)) # <- count either "CAS.Number" or "Species"
+
+```
+
+
+## Paper 2: Life Cycle Inventories and missing toxicity characterizations
+```{r, include=FALSE}
+Ecoinvent_Pest_in_LCI <- 
+c("10605-21-7", "36734-19-7","23564-05-8","125116-23-6","67747-09-5","107534-96-3","50471-44-8",
+  "15299-99-7","81777-89-1","1582-09-8","111479-05-1","79241-46-6","1071-83-6","67129-08-2","90717-03-6",
+  "50563-36-5","94051-08-8","52918-63-5","1820573-27-0","102851-06-9","52315-07-8","67375-30-8","91465-08-6",
+  "7003-89-6","999-81-5","95266-40-3","94361-06-5","121552-61-2","106325-08-0","67306-00-7","67564-91-4",
+  "60207-90-1","131860-33-8","3347-22-6","114369-43-6","136426-54-5","85509-19-9","143390-89-0",
+  "118134-30-8","55219-65-3","25057-89-0","40487-42-1","83164-33-4","1689-83-4","142891-20-1",
+  "15165-67-0","96525-23-4","34123-59-6","135591-00-3","101200-48-0","69377-81-7","94-74-6",
+  "16484-77-8","120923-37-7","15545-48-9","185119-76-0","74223-64-6","79277-27-3","23103-98-2",
+  "56-38-2","60-51-5","66230-04-4","301-12-2","67375-30-8","16672-87-0")
+
+Ecoinvent_HESTIA_DB_LCI_data <- EnviroTox_toxDB_EC10eq_second_avg %>% 
+    filter(CAS.Number %in% Ecoinvent_Pest_in_LCI)
+
+write.xlsx(as.data.frame(Ecoinvent_HESTIA_DB_LCI_data), "Ecoinvent_HESTIA_DB_LCI.xlsx", sheetName = "Data", row.names = F, col.names = T ,append = F, showNA = F)
+
+
+Ecoinvent_VEGA_DB_LCI <- VEGA_CF %>% 
+    filter(CAS.Number %in% Ecoinvent_Pest_in_LCI)
+
+write.xlsx(as.data.frame(Ecoinvent_VEGA_DB_LCI), "Ecoinvent_VEGA_DB_LCI.xlsx", sheetName = "Data", row.names = F, col.names = T ,append = F, showNA = F)
+
+```
+
+# HESTIA Analysis, Missing PAF in HESTIA DB
+
+```{r, include = FALSE}
+HESTIA_missing_PAF <- read.xlsx("pesticideAI-missing-paf_ON.xlsx", sheetName = "Data", header = T) 
+
+HESTIA_missing_PAF <- HESTIA_missing_PAF %>% 
+  mutate(term..id = gsub(pattern = "CAS-", "", term..id)) %>% 
+    rename(CAS.Number = term..id,
+           name = term.name,
+           Bibliography.1 = term.bibliographies,
+           Bibliography.2 = Column4,
+           Bibliography.3 = Column5) %>% 
+    select(-term.id)
+
+HESTIA_missing_PAF %>% 
+    left_join(x = ., 
+              y = HESTIA_HC20EC10eq_cfs %>% 
+    filter(CAS.Number %in% HESTIA_missing_PAF$CAS.Number),
+by = "CAS.Number")
+
+```
+
