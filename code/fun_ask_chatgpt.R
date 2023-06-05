@@ -1,6 +1,5 @@
 # How to call the new (as of 2023-03-01) ChatGPT API from R
 # Get your API key over here: https://platform.openai.com/
-#gpt_key <- "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" # Don't share this!
 
 library(httr)
 library(stringr)
