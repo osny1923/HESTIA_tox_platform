@@ -139,7 +139,7 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
         # Calculating the confidence intervals for mu and sigma at HC20 working point
         confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
         output_df$Q2.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,1], sd = confint_res[2,1])
-        output_df$Q97.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2])
+        output_df$Q97.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
         # Adding "nothing" to the tryCatch output, since i don't want a warning inside the plot
         ""
       }, error = function(e) {

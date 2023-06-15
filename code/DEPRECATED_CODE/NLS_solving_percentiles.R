@@ -6,7 +6,7 @@ library(pracma)
 library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
 
-test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(CAS.Number == "100-61-8")
+test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(CAS.Number == "100-00-5")
 #Loading all prerequisites
 {
   ### Loading functions to base nls on ###
@@ -95,8 +95,8 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
         
           # Calculating the confidence intervals for mu and sigma at HC20 working point
           confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
-          output_df$Q2.5[i] <- qnorm((20/100), mean = confint_res[1,1], sd = confint_res[2,1])
-          output_df$Q97.5[i] <- qnorm((20/100), mean = confint_res[1,2], sd = confint_res[2,2])
+          output_df$Q2.5[i] <- qnorm(0.2, mean = confint_res[1,1], sd = confint_res[2,1])
+          output_df$Q97.5[i] <- qnorm(0.2, mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
           # Shoul I use the following input instead of a point parameter?
           # predict(nls_out)
       
@@ -124,12 +124,12 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
                 scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), labels = c("0", "20", "40", "60", "80", "100")) +
                 scale_color_manual(name = element_blank(),
                                    aesthetics = c("color"),
-                                   labels = c("logHC20EC10eq", "2.5 percentile", "97.5 percentile"),
+                                   labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
                                    values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue")
                 ) +
                 scale_shape_manual(name = element_blank(),
-                                   labels = c("logHC20EC10eq", "2.5 percentile", "97.5 percentile"),
-                                   values = c(15, 8, 8)
+                                   labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
+                                   values = c(15, 17, 19)
                 ) +
                 labs(title = paste("CAS", output_df$CAS.Number[i], sep = " "),
                      subtitle = paste("log10HC", 20, "EC10eq"," = ", round(output_df$log_HC20EC10eq[i], digits = 4), " ", catch_warning[i], sep = ""),

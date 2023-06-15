@@ -1,0 +1,38 @@
+---
+title: "Impact_Assessment_USEtox"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+require(dplyr)
+require(readxl)
+```
+
+I am about to calculate characterization factors for a set of chemicals provided in the file "../data/Impact assessment/Impact assessment USEtox.xlsx"
+```{r}
+# read in CASRN for chemicals:
+CASRN <- c("14797-55-8", "14797-55-8", "64-19-7", "64-17-5", "67-56-1", "108-88-3", "75-07-0", "108-95-2", "74-98-6", "67-64-1", "50-00-0", "50-00-0", "7440-42-8", "7723-14-0", "71-43-2", "64-18-6", "109-67-1", "75-50-3", "94-75-7", "137-26-8", "7727-37-9", "aromatic hydrocarbons", "106-97-8", "109-66-0", "7782-50-5", "7723-14-0", "7440-42-8", "14797-55-8", "7723-14-0", "107-02-8", "100-52-7", "74-84-0", "110-00-9", "142-82-5", "110-54-3", "98-95-3", "7723-14-0", "7723-14-0", "14797-65-0", "14797-65-0", "7727-37-9", "7727-37-9", "7727-37-9", "94-74-6", "110-82-7")
+# Defining a data frame
+chemdata <- data.frame(CAS.Number = CASRN)
+```
+Reading the HESTIA Database
+```{r}
+# Read in the HESTIA Database
+USEtox_format <- read.csv("../results/HESTIA_HC20_dataset_USEtox_format.csv")
+```
+Extracting the HESTIA data in a USEtox database input format.
+```{r}
+impact_assess_output <- USEtox_format %>% 
+  filter(CASRN %in% chemdata$CAS.Number) %>% 
+  left_join(x = chemdata %>% 
+              rename(CASRN = CAS.Number), 
+            y = ., 
+            by = "CASRN") %>% 
+  select(2, c(1:50))
+
+write.xlsx(impact_assess_output, "../data/Impact assessment/USEtox_input.xlsx", sheetName = "Substance data", col.names = TRUE, row.names = FALSE, showNA = FALSE)
+```
+

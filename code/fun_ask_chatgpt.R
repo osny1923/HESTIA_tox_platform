@@ -6,10 +6,10 @@ library(stringr)
 
 # Calls the ChatGPT API with the given prompt and returns the answer
 ask_chatgpt <- function(prompt) {
-  gpt_key <- Sys.getenv("gpt_key")
+  gpt_key <- Sys.getenv("OPENAI_API_KEY")
   response <- POST(
     url = "https://api.openai.com/v1/chat/completions", 
-    add_headers(Authorization = paste("Bearer", getOption("gpt_key"))),
+    add_headers(Authorization = paste("Bearer", gpt_key)),
     content_type_json(),
     encode = "json",
     body = list(

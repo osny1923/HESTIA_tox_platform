@@ -148,7 +148,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
         # Calculating the confidence intervals for mu and sigma at HC20 working point
         confint_res <- confint(output_list$nls_results[[1]], parm = c("mu", "sig"), level = 0.95)
         output_list$Q2.5 <- qnorm(({{HCx}}/100), mean = confint_res[1,1], sd = confint_res[2,1])
-        output_list$Q97.5 <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2])
+        output_list$Q97.5 <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
         # Adding "nothing" to the tryCatch output, since i don't want a warning inside the plot
         ""
       }, error = function(e) {
@@ -185,17 +185,17 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
                       formula = y ~ cum_norm_dist_function(x, mu, sig),
                       method.args = list(start = cnormSS(sp_mean ~ sd_Li, data = d.frame)),
                       se =  FALSE) + # this is important
-          geom_ribbon(aes(ymin=Q2.5, ymax=Q97.5), alpha=0.2, na.rm = TRUE) +
+          #geom_ribbon(aes(ymin=Q2.5, ymax=Q97.5), alpha=0.2, na.rm = TRUE) +
           geom_point(aes(x = output_list$log_HC20EC10eq, y = ({{HCx}}/100), color = "HC20EC10eq", shape = "HC20EC10eq"), inherit.aes = F) +
           scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), labels = c("0", "20", "40", "60", "80", "100")) +
           scale_color_manual(name = element_blank(),
                              aesthetics = c("color"),
-                             labels = c("logHC20EC10eq", "2.5 percentile", "97.5 percentile"),
+                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
                              values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue")
           ) +
           scale_shape_manual(name = element_blank(),
-                             labels = c("logHC20EC10eq", "2.5 percentile", "97.5 percentile"),
-                             values = c(15, 6, 8)
+                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
+                             values = c(15, 17, 19)
           ) +
           labs(title = paste("CAS", output_list$CAS.Number, sep = " "),
                subtitle = paste("log10HC", {{HCx}}, "EC10eq"," = ", round(output_list$log_HC20EC10eq, digits = 4), " ", catch_warning, sep = ""),

@@ -44,6 +44,9 @@ ui <- fluidPage(
                
                mainPanel(
                  width = 10,
+                 br(),
+                 br(),
+                 br(),
                  div(style = "width:99%; height:100%; overflow-x:auto; overflow-y:auto;",
                      DT::dataTableOutput("resultsTable")
                  )
@@ -77,7 +80,7 @@ ui <- fluidPage(
                sidebarPanel(
                  width = 2,
                  selectInput("casNumberInput", "Select CAS Number Column:", choices = NULL, selectize = FALSE),
-                 sliderInput("hcInput", "Select effect level:", min = 5, max = 50, value = 20, step = 5, ticks = TRUE),
+                 sliderInput("hcInput", "Select Response Level:", min = 5, max = 95, value = 20, step = 5, ticks = TRUE),
                  actionButton("runButton", "Run nls-model"),
                  br(),
                  br()
