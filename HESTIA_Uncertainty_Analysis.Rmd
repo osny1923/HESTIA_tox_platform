@@ -395,7 +395,7 @@ For the final database, the HESTIA toxicological data set with EnviroTox unique 
  source("code/least_squares_fit_model_code.R")
 # 
 # # Running the operation with the HESTIA toxicity data set, generating a list object
-  system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "YES", Plot_destination = "figures/SSD_plots"))
+  system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "NO", Plot_destination = "figures/SSD_plots"))
 # 
 # #Transform into a dataframe - removing the list of lists containing full nls-output
 nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:11])) %>%
@@ -721,6 +721,7 @@ and how the uncertainty analysis in the current article is performed is that we 
  - Compare to the methodology applied in [@aurisano_probabilistic_2023]  
  - Few chemicals have a rich data from multiple tests per species.  
  - We need more data - for characterization purposes toxicological testing needs to be performed across more species from a more diverse set of taxonomic groups. Especially since more data == higher accuracy of the predicted CRF value.  
+ - We can compare the point data, the 
 
 **Conclusions**  
  - We have been able to analyze the uncertainties in the HC20 working point for a fair number of chemicals (`r nrow(nls_output_df %>% filter(status== "OK"))`), yet only fewer than 10% of the original data set with 16797 chemicals.    

@@ -5,6 +5,7 @@ library(tidyverse)
 library(pracma)
 library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
+require(EnvStats) # <- to calculate Geometric St.Dev as a comparative unitless measure across all data
 
 test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(CAS.Number == "100-00-5")
 #Loading all prerequisites
@@ -93,12 +94,37 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
         
         catch_warning <- list(warn = "")
         
-          # Calculating the confidence intervals for mu and sigma at HC20 working point
-          confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
-          output_df$Q2.5[i] <- qnorm(0.2, mean = confint_res[1,1], sd = confint_res[2,1])
-          output_df$Q97.5[i] <- qnorm(0.2, mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
-          # Shoul I use the following input instead of a point parameter?
-          # predict(nls_out)
+        # Define the number of runs
+        MC_n = 10000  
+        # Monte carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
+        MC_mu <- rnorm(MC_n, mean = coef(nls_out), sd = summary(nls_out)$parameters[1,2])
+        # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
+        MC_sig <- rnorm(MC_n, mean = coef(nls_out), sd = summary(nls_out)$parameters[2,2])
+        # these two vectors is used to construt HC20 using the qnorm()
+        HC20_vec <- qnorm((20/100), mean = MC_mu, sd = MC_sig)
+        hist(HC20_vec)
+        output_df$HC20_vec[i] <- list(HC20_vec)
+        mean_HC20_vec <- mean(HC20_vec)
+        sd_HC20_vec <- sd(HC20_vec)
+        output_df$Q2.5[i] <- quantile(HC20_vec, 0.025)
+        output_df$Q97.5[i] <- quantile(HC20_vec, 0.975)
+        
+        # Presenting the uncertainties across the whole dataset
+          # install.packages("EnvStats")
+        
+          # geometric st.dev
+          #HC20_vec_bct <- 10^HC20_vec
+          # Comparing variation across chemicals using the geoSD and first back-log-transform all the log-data
+          Geometric_St.Dev <- geoSD(10^HC20_vec)
+        
+        # Back transform
+        
+          # # Calculating the confidence intervals for mu and sigma at HC20 working point
+          # confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
+          # output_df$Q2.5[i] <- qnorm(0.2, mean = coef(nls_out)[1], sd = coef(nls_out)[2])
+          # output_df$Q97.5[i] <- qnorm(0.2, mean = coef(nls_out)[1], sd = coef(nls_out)[2], lower.tail = FALSE)
+          # # Shoul I use the following input instead of a point parameter?
+          # # predict(nls_out)
       
             d.frame <- cbind(d.frame, predict2_nls(nls_out, interval = "confidence"))
           
@@ -156,5 +182,7 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
     }
   
 # sum <- summary(nls_out)
+summary(nls_out)[7]$convInfo$finIter # Number of iterations to convergence 
+summary(nls_out)[7]$convInfo$finTol # Achieved convergence tolerance 
 # sum[7]$convInfo$finIter # get data on Number of iterations to convergence 
 # sum[7]$convInfo$finTol # get data on Achieved convergence tolerance

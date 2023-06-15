@@ -5,17 +5,17 @@ library(dplyr)
 library(pracma)
 library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
-
-# # #### TEST_bullshit
-#  dataset <- HESTIA_BASE_EnviroTox_FILL %>% filter(CAS.Number == "100-00-5")
-# 
-# nls_data_test <- nls_across_shiny(dataset = dataset, "100-00-5", HCx = 20)
-# nls_t <- nls_data_test[[1]]
-# test <- data.frame(do.call(cbind, nls_t[1:11])) %>%
-#   mutate(across(c(2:10), ~ as.numeric(.x)))
-
+require(EnvStats) # <- to calculate Geometric St.Dev as a comparative unitless measure across all data
+# # #### TEST
+#   dataset <- HESTIA_BASE_EnviroTox_FILL %>% filter(CAS.Number == "100-00-5")
+# # #
+#   nls_data_test <- nls_across_shiny(dataset = dataset, "100-00-5", HCx = 20)
+#   nls_t <- nls_data_test[[1]]
+# #  test <- data.frame(do.call(cbind, nls_t[1:14])) %>%
+# #    mutate(across(c(2:14), ~ as.numeric(.x)))
+# hist(nls_t$HCx_vec)
                              
-nls_across_shiny <- function(dataset, CAS, HCx = 20) {
+nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
   options(dplyr.summarise.inform = FALSE)
   
   ### Loading functions to base nls on ###
@@ -48,13 +48,31 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
               n_recs = sum(n))
   
   ### create a template list-object to fill ###
-  output_list <- list(CAS.Number = NULL, log_HC20EC10eq = NULL,
-                      Effect_level = {{HCx}}, 
-                    CRF  = NULL, mu  = NULL, sigma  = NULL,
-                    Q2.5 = NULL, Q97.5 = NULL,
-                    n_sp = NULL, n_tax.grp = NULL,
+  # output_list <- list(CAS.Number = NULL, log_HC20EC10eq = NULL,
+  #                     Effect_level = {{HCx}}, 
+  #                   CRF  = NULL, mu  = NULL, sigma  = NULL,
+  #                   Q2.5 = NULL, Q97.5 = NULL,
+  #                   n_sp = NULL, n_tax.grp = NULL,
+  #                   n_recs = NULL,
+  #                   status = NULL, nls_results  = NULL)
+  ### create a template list-object to fill ###
+  output_list <- list(CAS.Number = NULL,
+                    log_HC20EC10eq = NULL,
+                    Effect_level = {{HCx}},
+                    CRF = NULL,
+                    mu = NULL,
+                    sigma = NULL,
+                    mean_HCx = NULL,
+                    sd_HCx  = NULL,
+                    Q2.5 = NULL,
+                    Q97.5 = NULL,
+                    n_sp = NULL,
+                    n_tax.grp = NULL,
                     n_recs = NULL,
-                    status = NULL, nls_results  = NULL)
+                    Geometric_St.Dev = NULL,
+                    status = NULL,
+                    nls_results = NULL,
+                    HCx_vec = NULL)
 
     # If insufficient data (number of species <5 and/or number of taxonomic groups <3), print statement "not enough data" and move to the next substance. 
     if (error_df[,"n_sp"] <5 | error_df[,"n_tax.grp"] <3) {
@@ -63,12 +81,15 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
       output_list$CRF <- as.numeric(NA)
       output_list$mu <- as.numeric(NA)
       output_list$sigma <- as.numeric(NA)
+      output_list$mean_HCx <- as.numeric(NA)
+      output_list$sd_HCx  <- as.numeric(NA)
       output_list$Q2.5 <- as.numeric(NA)
       output_list$Q97.5 <- as.numeric(NA)
       output_list$status <- "not enough data"
       output_list$n_sp <- as.numeric(error_df[,"n_sp"])
       output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
       output_list$n_recs <- as.numeric(error_df[,"n_recs"])
+      output_list$HCx_vec <- as.numeric(NA)
       output_list$nls_results <- as.numeric(NA)
       # Create a blank plot
       plt <- ggplot() +
@@ -129,9 +150,16 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
         output_list$n_recs <- as.numeric(error_df[i,"n_recs"])
         output_list$nls_results <- as.numeric(NA)
         
-      } else {
+      } else { #Run Monte Carlo analysis on the distribution of HC20EC10eq data to assess uncertainty!
+        # Defining the number of runs is done in the function using parameter (MC_n)
+        # Monte Carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
+        MC_mu <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[1,2])
+        # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
+        MC_sig <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[2,2])
+        # these two vectors is used to construt HC20 using the qnorm()
+        HCx_vec <- qnorm(({{HCx}}/100), mean = MC_mu, sd = MC_sig)
+        
         # assigning all the lists with respectively generated data
-        output_list$nls_results <- list(nls_out)
         # assign CAS.Number to output df
         output_list$CAS.Number <- {{CAS}}
         # Automating extraction of the mu & sig nls results
@@ -139,25 +167,27 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
         output_list$CRF <- ({{HCx}}/100)/(10^output_list$log_HC20EC10eq)
         output_list$mu <- coef(nls_out)[1]
         output_list$sigma <- coef(nls_out)[2]
+        
+        output_list$mean_HCx <- mean(HCx_vec)
+        output_list$sd_HCx <- sd(HCx_vec)
+        output_list$Q2.5 <- quantile(HCx_vec, 0.025)
+        output_list$Q97.5 <- quantile(HCx_vec, 0.975)
+        
         output_list$n_sp <- as.numeric(error_df[,"n_sp"])
         output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
         output_list$n_recs <- as.numeric(error_df[,"n_recs"])
+        # Comparing variation across chemicals using the geoSD and first back-log-transform all the log-data
+        output_list$Geometric_St.Dev <- geoSD(10^HCx_vec)
+        output_list$HCx_vec <- HCx_vec # for plotting a histogram over the HC20EC10eq Monte Carlo data distribution
+        output_list$nls_results <- list(nls_out)
+        #hist <- hist(HCx_vec)
         
-      catch_warning <- list(warn = NULL)
-      catch_warning <- tryCatch({
         # Calculating the confidence intervals for mu and sigma at HC20 working point
-        confint_res <- confint(output_list$nls_results[[1]], parm = c("mu", "sig"), level = 0.95)
-        output_list$Q2.5 <- qnorm(({{HCx}}/100), mean = confint_res[1,1], sd = confint_res[2,1])
-        output_list$Q97.5 <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
-        # Adding "nothing" to the tryCatch output, since i don't want a warning inside the plot
-        ""
-      }, error = function(e) {
-        "Conf.int infinity produced"
-      },
-      warning = function(w){
-        "Conf.ints. warning"
-      }
-      )
+        # confint_res <- confint(output_list$nls_results[[1]], parm = c("mu", "sig"), level = 0.95)
+        # output_list$Q2.5 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd = coef(nls_out)[2])
+        # output_list$Q97.5 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd = coef(nls_out)[2], lower.tail = FALSE)
+      
+        
   # Plotting output!
   if (class(output_list$nls_results[[1]]) == "nls") {
       d.frame <- cbind(d.frame, predict2_nls(nls_out, interval = "conf"))
@@ -198,7 +228,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20) {
                              values = c(15, 17, 19)
           ) +
           labs(title = paste("CAS", output_list$CAS.Number, sep = " "),
-               subtitle = paste("log10HC", {{HCx}}, "EC10eq"," = ", round(output_list$log_HC20EC10eq, digits = 4), " ", catch_warning, sep = ""),
+               subtitle = paste("log10HC", {{HCx}}, "EC10eq"," = ", round(output_list$log_HC20EC10eq, digits = 4), sep = ""),
                x = "mean(log) EC10eq (mg L-1)",
                y = "Response level (%)") +
           theme_linedraw() +

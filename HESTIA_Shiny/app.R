@@ -92,8 +92,16 @@ ui <- fluidPage(
                  br(), 
                  "Data summary of the nonlinear least squares model.",
                  dataTableOutput("outputNLSData", width = "auto"),
-                 br(), 
-                 plotOutput("outputPlot",width = "720px", height = "600px"),
+                 fluidRow(
+                   column(width = 6,
+                          br(), 
+                          plotOutput("outputPlot", width = "100%", height = "600px")
+                   ),
+                   column(width = 6,
+                          br(),
+                          plotOutput("outputHist", width = "100%", height = "600px")
+                   )
+                 ),
                  br(),
                  "The raw data from which the model is based on.",
                  br(),
@@ -244,8 +252,8 @@ server <- function(input, output, session) {
   output$outputNLSData <- renderDataTable({
     # index the datatable object
     dat_list <- outputData()[[1]]
-    outputDf <- data.frame(do.call(cbind, dat_list[1:11]), row.names = FALSE) %>%
-        mutate(across(c(2:10), ~ as.numeric(.x))) %>% 
+    outputDf <- data.frame(do.call(cbind, dat_list[1:14]), row.names = FALSE) %>%
+        mutate(across(c(2:14), ~ as.numeric(.x))) %>% 
         `rownames<-`( NULL )
     return(outputDf)
   }, options = list(dom = "t")
@@ -291,6 +299,14 @@ server <- function(input, output, session) {
     outputData()[[2]]
     
   })
+  
+  # Render the output plot
+  output$outputHist <- renderPlot({
+    req(input$casNumberInput, input$hcInput)
+    # index the ggplot object
+    hist_dat <- outputData()[[1]]
+    hist(hist_dat$HCx_vec, main = "Histogram of Monte Carlo HC20EC10eq-values. 10K iterations")
+    })
   
   # Downloadable csv of selected dataset ----
   output$downloadData <- downloadHandler(

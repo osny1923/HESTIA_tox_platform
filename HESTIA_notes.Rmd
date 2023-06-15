@@ -113,8 +113,8 @@ Analysis needs work.
 
 
 
-
 [ ] look into journals: Environmental Health Perspectives (EHP)
+[ ] look into journals: Science of the total environment
 [ ] look into journals: Chemosphere
  - **Formatting requirements**
  There are no strict formatting requirements but all manuscripts must contain the essential elements needed to convey your manuscript, for example Abstract, Keywords, Introduction, Materials and Methods, Results, Conclusions, Artwork and Tables with Captions.

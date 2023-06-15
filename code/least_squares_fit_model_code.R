@@ -6,7 +6,7 @@ library(pracma)
 library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
 
-nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC = EC10eq, Sp = Species, HCx = 20, Plot_output = c("YES", "NO"), Plot_destination = "folder") {
+nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC = EC10eq, Sp = Species, HCx = 20, MC_n = 10000, Plot_output = c("YES", "NO"), Plot_destination = "folder") {
   options(dplyr.summarise.inform = FALSE)
   
   ### Loading functions to base nls on ###
@@ -43,12 +43,22 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
     arrange(CAS.Number)
   
   ### create a template list-object to fill ###
-  output_df <- list(CAS.Number = NULL, log_HC20EC10eq = NULL,
-                    CRF  = NULL, mu  = NULL, sigma  = NULL,
-                    Q2.5 = NULL, Q97.5 = NULL,
-                    n_sp = NULL, n_tax.grp = NULL,
-                    n_recs = NULL,
-                    status = NULL, nls_results  = NULL)
+  output_df <- list(CAS.Number = vector("character", length = length(CAS_list)), 
+                    log_HC20EC10eq = vector("numeric", length = length(CAS_list)),
+                    CRF = vector("numeric", length = length(CAS_list)), 
+                    mu = vector("numeric", length = length(CAS_list)), 
+                    sigma = vector("numeric", length = length(CAS_list)),
+                    mean_HCx = vector("numeric", length = length(CAS_list)),
+                    sd_HCx  = vector("numeric", length = length(CAS_list)),
+                    Q2.5 = vector("numeric", length = length(CAS_list)), 
+                    Q97.5 = vector("numeric", length = length(CAS_list)),
+                    n_sp = vector("numeric", length = length(CAS_list)), 
+                    n_tax.grp = vector("numeric", length = length(CAS_list)),
+                    n_recs = vector("numeric", length = length(CAS_list)),
+                    status = vector("numeric", length = length(CAS_list)), 
+                    HCx_vec = vector("list", length = length(CAS_list)),
+                    nls_results = vector("list", length = length(CAS_list)))
+  
   # Create a dummy integer "i"
   i = 1
   
@@ -136,10 +146,25 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
         
       catch_warning <- list(warn = NULL)
       catch_warning[i] <- tryCatch({
-        # Calculating the confidence intervals for mu and sigma at HC20 working point
-        confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
-        output_df$Q2.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,1], sd = confint_res[2,1])
-        output_df$Q97.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
+        # # Calculating the confidence intervals for mu and sigma at HC20 working point
+        # confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
+        # output_df$Q2.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,1], sd = confint_res[2,1])
+        # output_df$Q97.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
+        
+        # Defining the number of runs is done in the function using parameter (MC_n)
+        # Monte Carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
+        MC_mu <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[1,2])
+        # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
+        MC_sig <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[2,2])
+        # these two vectors is used to construt HC20 using the qnorm()
+        HCx_vec <- qnorm(({{HCx}}/100), mean = MC_mu, sd = MC_sig)
+        #hist(HCx_vec)
+        output_df$HCx_vec[i] <- list(HCx_vec)
+        output_df$mean_HCx[i] <- mean(HCx_vec)
+        output_df$sd_HCx[i] <- sd(HCx_vec)
+        output_df$Q2.5[i] <- quantile(HCx_vec, 0.025)
+        output_df$Q97.5[i] <- quantile(HCx_vec, 0.975)
+        
         # Adding "nothing" to the tryCatch output, since i don't want a warning inside the plot
         ""
       }, error = function(e) {
