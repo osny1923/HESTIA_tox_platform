@@ -139,6 +139,8 @@ Variationen mellan taxonomiska grupper kan ev. påverka mer än inter-art-variat
 
 2023-06-14
 Meeting with Patrik and Reinout:
-[ ] The uncertainty ratio - This method is not good. As the log_HC20EC10eq-value approaches 0, on the log scale, any uncertainty in relation to this value will be blown out of proportion. Bad approach to assessing uncertainty across the dataset.
-[ ] How to analyze the uncertainties across the dataset? how should we compare data?
-[ ] what about the Q2.5 and Q97.5. These data are calculated based on the whole dataset, and, uncertainty is lowest at response level 50%, while the central value is often outside of the 95% CI at the 20% response level. How does this work, and is this good? can we just calculate a range? how to compare the Q2.5 and Q97.5 to the central value?
+[X] The uncertainty ratio - This method is not good. As the log_HC20EC10eq-value approaches 0, on the log scale, any uncertainty in relation to this value will be blown out of proportion. Bad approach to assessing uncertainty across the dataset.
+[X] How to analyze the uncertainties across the dataset? how should we compare data?
+[X] what about the Q2.5 and Q97.5. These data are calculated based on the whole dataset, and, uncertainty is lowest at response level 50%, while the central value is often outside of the 95% CI at the 20% response level. How does this work, and is this good? can we just calculate a range? how to compare the Q2.5 and Q97.5 to the central value?
+
+[ ] Issue: For several substances, many NAN's are produced in the calculation of `r HCx_vec <- qnorm(({{HCx}}/100), mean = MC_mu, sd = MC_sig)` calculation

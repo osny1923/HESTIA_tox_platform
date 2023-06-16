@@ -386,22 +386,18 @@ HESTIA_HC50_calc <- HC50_calc_function(HESTIA_BASE_EnviroTox_FILL %>% left_join(
 For the final database, the HESTIA toxicological data set with EnviroTox unique records attached, we calculate `r nrow(HESTIA_HC20 %>% filter(!is.na(HC20)))` $CRF_{HC20}$-values out of `r nrow(HESTIA_HC20)` chemicals. Moreover, we calculate HC50$_{EC50}$-values (denoted $av_{log}HC50_{EC50}$ in @Fantke_2017) according to the former effect factor standard in USEtox 2.1 for `r nrow(HESTIA_HC50_calc %>% filter(!is.na(avlog10_HC50_EC50)))`.   
 
 ```{r SummaryNls}
-# [explain what the qnorm() function in R code is calculating]
-# "The qnorm() function in R is used to compute the inverse cumulative distribution function (CDF) of the standard normal distribution. In other words, given a probability p, qnorm(p) returns the value x such that P(X <= x) = p, where X is a random variable following a standard normal distribution. This is useful when working with normally distributed data, as it allows you to find the value of x that corresponds to a particular probability or percentile in the distribution. For example, if you want to find the value x such that 95% of the observations in a normal distribution are below x, you can use qnorm(0.95) to calculate the corresponding x value."
-
-#data set to analyze is object `HESTIA_BASE_EnviroTox_FILL`
-
-# # load the nls function
- source("code/least_squares_fit_model_code.R")
-# 
-# # Running the operation with the HESTIA toxicity data set, generating a list object
-  system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "NO", Plot_destination = "figures/SSD_plots"))
+# load the nls function
+#  source("code/least_squares_fit_model_code.R")
+#  # Running the operation with the HESTIA toxicity data set, generating a list object
+# system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "NO", MC_n = 1e+05, Plot_destination = "figures/SSD_plots"))
 # 
 # #Transform into a dataframe - removing the list of lists containing full nls-output
-nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:11])) %>%
- mutate(across(c(2:10), ~ as.numeric(.x)),
-        CAS.Number = as.factor(CAS.Number))
-write.csv(nls_output_df, "results/nls_output_df.csv", row.names = F)
+# nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:16])) %>%
+#  mutate(across(c(2:15), ~ as.numeric(.x)),
+#         CAS.Number = as.factor(CAS.Number),
+#         status = as.character(status))
+# 
+# write.csv(nls_output_df, "results/nls_output_df.csv", row.names = F)
 
 nls_output_df <- read.csv("results/nls_output_df.csv")
 ```
@@ -446,25 +442,25 @@ The 2.5% and 97.5% quantiles are unequally distanced from the central $logHC20_{
 ```{r}
 ## select only substances with enough data to fit a model to
 nls_output_df_OK <- nls_output_df %>% 
-  filter(status == "OK")
+  filter(status == "Convergence")
 
 uncertainty_ratios <- nls_output_df_OK %>% 
-  select(CAS.Number, log_HC20EC10eq, Q2.5, Q97.5, n_recs, n_sp, n_tax.grp) %>% 
-  mutate(quantile_range = (Q97.5-Q2.5)/2, # <- average quantile range from the central value
-         uncertainty_ratio = as.numeric(abs(quantile_range)/abs(log_HC20EC10eq)))
+  select(CAS.Number, log_HC20EC10eq, Q2.5, Q97.5, Geo_St.Dev, n_recs, n_sp, n_tax.grp) #%>% 
+  # mutate(quantile_range = (Q97.5-Q2.5)/2, # <- average quantile range from the central value
+  #        uncertainty_ratio = as.numeric(abs(quantile_range)/abs(log_HC20EC10eq)))
 
-summary_uncertainty_ratios <- autofit(flextable(uncertainty_ratios %>% 
-  filter(!is.na(uncertainty_ratio)) %>% 
-  summarise_at(vars(uncertainty_ratio),
-              list(min=min, 
-                    Q1=~quantile(., probs = 0.25, na.rm = T, digits = 2),
-                    median=median, 
-                    Q3=~quantile(., probs = 0.75, na.rm = T, digits = 2),
-                    max=max))))
+# summary_uncertainty_ratios <- autofit(flextable(uncertainty_ratios %>% 
+#   filter(!is.na(uncertainty_ratio)) %>% 
+#   summarise_at(vars(uncertainty_ratio),
+#               list(min=min, 
+#                     Q1=~quantile(., probs = 0.25, na.rm = T, digits = 2),
+#                     median=median, 
+#                     Q3=~quantile(., probs = 0.75, na.rm = T, digits = 2),
+#                     max=max))))
 
-summary_uncertainty_ratios %>% 
-  set_caption("Uncertainty ratios distribution across the data set with minimum, 25%-quantile (Q1), median, 75%-quantile(Q3) and maximum") %>% 
-  fontsize(., size = 9, part = "all")
+# summary_uncertainty_ratios %>% 
+#   set_caption("Uncertainty ratios distribution across the data set with minimum, 25%-quantile (Q1), median, 75%-quantile(Q3) and maximum") %>% 
+#   fontsize(., size = 9, part = "all")
   
 
 ### joining the uncertainty ratios with physchem data

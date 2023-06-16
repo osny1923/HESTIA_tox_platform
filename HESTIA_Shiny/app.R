@@ -80,11 +80,13 @@ ui <- fluidPage(
                sidebarPanel(
                  width = 2,
                  selectInput("casNumberInput", "Select CAS Number Column:", choices = NULL, selectize = FALSE),
-                 sliderInput("hcInput", "Select Response Level:", min = 5, max = 95, value = 20, step = 5, ticks = TRUE),
-                 actionButton("runButton", "Run nls-model"),
                  br(),
+                 sliderInput("hcInput", "Select Response Level:", min = 5, max = 95, value = 20, step = 5, ticks = TRUE),
+                 br(),
+                 sliderInput("MC_n", "n Monte Carlo runs", min = 100000, max = 1000000, value = 100000, step = 100000, ticks = TRUE),
+                 br(),
+                 actionButton("runButton", "Run nls-model"),
                  br()
-                 
                  ),
                
                mainPanel(
@@ -239,8 +241,8 @@ server <- function(input, output, session) {
   
   # Run the function and generate the output
   outputData <- eventReactive(input$runButton, {
-    req(SSDdata(), input$casNumberInput, input$hcInput)
-    nls_across_shiny(SSDdata(), CAS = input$casNumberInput, HCx = input$hcInput)
+    req(SSDdata(), input$casNumberInput, input$hcInput, input$MC_n)
+    nls_across_shiny(SSDdata(), CAS = input$casNumberInput, HCx = input$hcInput, MC_n = input$MC_n)
   })
   
   # Update the CAS Number choices based on the uploaded dataset
@@ -252,8 +254,8 @@ server <- function(input, output, session) {
   output$outputNLSData <- renderDataTable({
     # index the datatable object
     dat_list <- outputData()[[1]]
-    outputDf <- data.frame(do.call(cbind, dat_list[1:14]), row.names = FALSE) %>%
-        mutate(across(c(2:14), ~ as.numeric(.x))) %>% 
+    outputDf <- data.frame(do.call(cbind, dat_list[1:16]), row.names = FALSE) %>%
+        mutate(across(c(2:16), ~ as.numeric(.x))) %>% 
         `rownames<-`( NULL )
     return(outputDf)
   }, options = list(dom = "t")
@@ -302,10 +304,10 @@ server <- function(input, output, session) {
   
   # Render the output plot
   output$outputHist <- renderPlot({
-    req(input$casNumberInput, input$hcInput)
+    req(input$casNumberInput, input$hcInput, input$MC_n)
     # index the ggplot object
     hist_dat <- outputData()[[1]]
-    hist(hist_dat$HCx_vec, main = "Histogram of Monte Carlo HC20EC10eq-values. 10K iterations")
+    hist(hist_dat$HCx_vec, main = paste("Histogram of Monte Carlo HC", hist_dat$Resp_lvl, "EC10eq-values. ", input$MC_n/1000, "K iterations", sep = ""))
     })
   
   # Downloadable csv of selected dataset ----

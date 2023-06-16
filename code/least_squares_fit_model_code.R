@@ -5,8 +5,9 @@ library(tidyverse)
 library(pracma)
 library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
+library(EnvStats)
 
-nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC = EC10eq, Sp = Species, HCx = 20, MC_n = 10000, Plot_output = c("YES", "NO"), Plot_destination = "folder") {
+nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC = EC10eq, Sp = Species, HCx = 20, MC_n = 100000, Plot_output = c("YES", "NO"), Plot_destination = "folder") {
   options(dplyr.summarise.inform = FALSE)
   
   ### Loading functions to base nls on ###
@@ -55,9 +56,14 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
                     n_sp = vector("numeric", length = length(CAS_list)), 
                     n_tax.grp = vector("numeric", length = length(CAS_list)),
                     n_recs = vector("numeric", length = length(CAS_list)),
-                    status = vector("numeric", length = length(CAS_list)), 
-                    HCx_vec = vector("list", length = length(CAS_list)),
-                    nls_results = vector("list", length = length(CAS_list)))
+                    Geo_St.Dev = vector("numeric", length = length(CAS_list)),
+                    Iterations.to.Convergence = vector("numeric", length = length(CAS_list)),
+                    Achieved.convergence.tolerance = vector("numeric", length = length(CAS_list)),
+                    status = vector("character", length = length(CAS_list)),
+                    nls_results = vector("list", length = length(CAS_list)),
+                    MC_mu = vector("list", length = length(CAS_list)),
+                    MC_sig = vector("list", length = length(CAS_list)),
+                    HCx_vec = vector("list", length = length(CAS_list)))
   
   # Create a dummy integer "i"
   i = 1
@@ -78,6 +84,14 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
       output_df$n_sp[i] <- as.numeric(error_df[i,"n_sp"])
       output_df$n_tax.grp[i] <- as.numeric(error_df[i,"n_tax.grp"])
       output_df$n_recs[i] <- as.numeric(error_df[i,"n_recs"])
+      output_df$mean_HCx[i] <- as.numeric(NA)
+      output_df$sd_HCx[i] <- as.numeric(NA)
+      output_df$Geo_St.Dev[i] <- as.numeric(NA)
+      output_df$Iterations.to.Convergence[i] <- as.numeric(NA)
+      output_df$Achieved.convergence.tolerance[i] <- as.numeric(NA)
+      output_df$MC_mu[i] <- as.numeric(NA)
+      output_df$MC_sig[i] <- as.numeric(NA)
+      output_df$HCx_vec[i] <- as.numeric(NA)
       output_df$nls_results[i] <- as.numeric(NA)
       i = i+1
     }
@@ -136,7 +150,7 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
         # assign CAS.Number to output df
         output_df$CAS.Number[i] <- CAS_list[i]
         # Automating extraction of the mu & sig nls results
-        output_df$log_HC20EC10eq[i] <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd =  coef(nls_out)[2]) # gives me a point value of the corresponding HC20 (data fetched from model output)
+        output_df$log_HC20EC10eq[i] <- qnorm(({{HCx}}/100), mean = coef(output_df$nls_results[[i]])[1], sd =  coef(output_df$nls_results[[i]])[2]) # gives me a point value of the corresponding HC20 (data fetched from model output)
         output_df$CRF[i] <- ({{HCx}}/100)/(10^output_df$log_HC20EC10eq[i])
         output_df$mu[i] <- coef(nls_out)[1]
         output_df$sigma[i] <- coef(nls_out)[2]
@@ -144,36 +158,27 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
         output_df$n_tax.grp[i] <- as.numeric(error_df[i,"n_tax.grp"])
         output_df$n_recs[i] <- as.numeric(error_df[i,"n_recs"])
         
-      catch_warning <- list(warn = NULL)
-      catch_warning[i] <- tryCatch({
-        # # Calculating the confidence intervals for mu and sigma at HC20 working point
-        # confint_res <- confint(output_df$nls_results[[i]], parm = c("mu", "sig"), level = 0.95)
-        # output_df$Q2.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,1], sd = confint_res[2,1])
-        # output_df$Q97.5[i] <- qnorm(({{HCx}}/100), mean = confint_res[1,2], sd = confint_res[2,2], lower.tail = FALSE)
-        
-        # Defining the number of runs is done in the function using parameter (MC_n)
         # Monte Carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
-        MC_mu <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[1,2])
+        # Defining the number of runs is done in the function using parameter (MC_n)
+        output_df$MC_mu[i] <- list(rnorm({{MC_n}}, mean = summary(output_df$nls_results[[i]])$parameters[1,1], sd = summary(output_df$nls_results[[i]])$parameters[1,2]))
         # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
-        MC_sig <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[2,2])
+        output_df$MC_sig[i] <- list(rnorm({{MC_n}}, mean = summary(output_df$nls_results[[i]])$parameters[2,1], sd = summary(output_df$nls_results[[i]])$parameters[2,2]))
         # these two vectors is used to construt HC20 using the qnorm()
-        HCx_vec <- qnorm(({{HCx}}/100), mean = MC_mu, sd = MC_sig)
-        #hist(HCx_vec)
-        output_df$HCx_vec[i] <- list(HCx_vec)
-        output_df$mean_HCx[i] <- mean(HCx_vec)
-        output_df$sd_HCx[i] <- sd(HCx_vec)
-        output_df$Q2.5[i] <- quantile(HCx_vec, 0.025)
-        output_df$Q97.5[i] <- quantile(HCx_vec, 0.975)
+        output_df$HCx_vec[i] <- list(qnorm(({{HCx}}/100), mean = output_df$MC_mu[[i]], sd = output_df$MC_sig[[i]]))
+        output_df$mean_HCx[i] <- mean(output_df$HCx_vec[[i]], na.rm = T)
+        output_df$sd_HCx[i] <- sd(output_df$HCx_vec[[i]], na.rm = T)
+        output_df$Geo_St.Dev[i] <- geoSD(10^output_df$HCx_vec[[i]], na.rm = T)
+        output_df$Q2.5[i] <- quantile(output_df$HCx_vec[[i]], 0.025, na.rm = T)
+        output_df$Q97.5[i] <- quantile(output_df$HCx_vec[[i]], 0.975, na.rm = T)
+        output_df$Iterations.to.Convergence[i] <- summary(output_df$nls_results[[i]])[7]$convInfo$finIter
+        output_df$Achieved.convergence.tolerance[i] <-summary(output_df$nls_results[[i]])[7]$convInfo$finTol
         
-        # Adding "nothing" to the tryCatch output, since i don't want a warning inside the plot
-        ""
-      }, error = function(e) {
-        "Conf.int infinity produced"
-      },
-      warning = function(w){
-        "Conf.ints. warning"
-      }
-      )
+        # Empty the Monte Carlo run data containers
+        output_df$MC_mu[i] <- NULL
+        output_df$MC_sig[i] <- NULL
+        # Empty the garbage!
+        gc(verbose = F)
+        
         # Do i want plot output or not?
         # If i don't want plots, i skip nls model fit calculations and ggplot operation
         if (Plot_output == "YES") {

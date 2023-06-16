@@ -14,10 +14,11 @@ require(EnvStats) # <- to calculate Geometric St.Dev as a comparative unitless m
 # #  test <- data.frame(do.call(cbind, nls_t[1:14])) %>%
 # #    mutate(across(c(2:14), ~ as.numeric(.x)))
 # hist(nls_t$HCx_vec)
+
+# nonweighted_data <- read.csv("data/HESTIA_HC20_dataset.csv", header = TRUE) %>% select(CAS.Number, HC20EC10eq)
                              
 nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
   options(dplyr.summarise.inform = FALSE)
-  
   ### Loading functions to base nls on ###
   # Cumulative normal distribution function:
   cum_norm_dist_function <- function(x, mu, sig){
@@ -47,29 +48,23 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
               n_tax.grp = length(unique(Taxonomy.Group)), 
               n_recs = sum(n))
   
-  ### create a template list-object to fill ###
-  # output_list <- list(CAS.Number = NULL, log_HC20EC10eq = NULL,
-  #                     Effect_level = {{HCx}}, 
-  #                   CRF  = NULL, mu  = NULL, sigma  = NULL,
-  #                   Q2.5 = NULL, Q97.5 = NULL,
-  #                   n_sp = NULL, n_tax.grp = NULL,
-  #                   n_recs = NULL,
-  #                   status = NULL, nls_results  = NULL)
-  ### create a template list-object to fill ###
+
   output_list <- list(CAS.Number = NULL,
-                    log_HC20EC10eq = NULL,
-                    Effect_level = {{HCx}},
+                    log_HCxEC10 = NULL,
+                    non_W_HCxEC10 = NULL,
+                    MC_logHC20ec10eq = NULL, 
+                    Resp_lvl = {{HCx}},
                     CRF = NULL,
+                    n_sp = NULL,
+                    n_tax.grp = NULL,
+                    n_recs = NULL,
                     mu = NULL,
                     sigma = NULL,
                     mean_HCx = NULL,
                     sd_HCx  = NULL,
                     Q2.5 = NULL,
                     Q97.5 = NULL,
-                    n_sp = NULL,
-                    n_tax.grp = NULL,
-                    n_recs = NULL,
-                    Geometric_St.Dev = NULL,
+                    Geo_St.Dev = NULL,
                     status = NULL,
                     nls_results = NULL,
                     HCx_vec = NULL)
@@ -77,7 +72,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
     # If insufficient data (number of species <5 and/or number of taxonomic groups <3), print statement "not enough data" and move to the next substance. 
     if (error_df[,"n_sp"] <5 | error_df[,"n_tax.grp"] <3) {
       output_list$CAS.Number <- {{CAS}}
-      output_list$log_HC20EC10eq <- as.numeric(NA)
+      output_list$log_HCxEC10 <- as.numeric(NA)
       output_list$CRF <- as.numeric(NA)
       output_list$mu <- as.numeric(NA)
       output_list$sigma <- as.numeric(NA)
@@ -122,7 +117,10 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
                sd_Li = case_when(sd_Li == 0 ~ as.numeric(NA), TRUE ~ sd_Li)) %>%
         arrange(y_rank) %>%
         mutate(Taxonomy.Group = as.factor(Taxonomy.Group))
-     
+      
+      z_HCx <- sqrt(2)*erfinv(2*({{HCx}}/100)-1)
+      output_list$non_W_HCxEC10 <- mean(d.frame$sp_mean, na.rm = T) + (z_HCx * sd(d.frame$sp_mean, na.rm = T))
+      
       # adding a tryCatch to identify status occurring due to few records, resulting in non-convergence.
       output_list$status <- tryCatch({
         
@@ -153,9 +151,9 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
       } else { #Run Monte Carlo analysis on the distribution of HC20EC10eq data to assess uncertainty!
         # Defining the number of runs is done in the function using parameter (MC_n)
         # Monte Carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
-        MC_mu <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[1,2])
+        MC_mu <- rnorm({{MC_n}}, mean = summary(nls_out)$parameters[1,1], sd = summary(nls_out)$parameters[1,2])
         # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
-        MC_sig <- rnorm({{MC_n}}, mean = coef(nls_out), sd = summary(nls_out)$parameters[2,2])
+        MC_sig <- rnorm({{MC_n}}, mean = summary(nls_out)$parameters[2,1], sd = summary(nls_out)$parameters[2,2])
         # these two vectors is used to construt HC20 using the qnorm()
         HCx_vec <- qnorm(({{HCx}}/100), mean = MC_mu, sd = MC_sig)
         
@@ -163,25 +161,24 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
         # assign CAS.Number to output df
         output_list$CAS.Number <- {{CAS}}
         # Automating extraction of the mu & sig nls results
-        output_list$log_HC20EC10eq <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd =  coef(nls_out)[2]) # gives me a point value of the corresponding HC20 (data fetched from console output)
-        output_list$CRF <- ({{HCx}}/100)/(10^output_list$log_HC20EC10eq)
+        output_list$log_HCxEC10 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd =  coef(nls_out)[2]) # gives me a point value of the corresponding HC20 (data fetched from console output)
+        output_list$CRF <- ({{HCx}}/100)/(10^output_list$log_HCxEC10)
         output_list$mu <- coef(nls_out)[1]
         output_list$sigma <- coef(nls_out)[2]
         
-        output_list$mean_HCx <- mean(HCx_vec)
-        output_list$sd_HCx <- sd(HCx_vec)
-        output_list$Q2.5 <- quantile(HCx_vec, 0.025)
-        output_list$Q97.5 <- quantile(HCx_vec, 0.975)
-        
+        output_list$mean_HCx <- mean(HCx_vec, na.rm=T)
+        output_list$sd_HCx <- sd(HCx_vec, na.rm=T)
+        output_list$Q2.5 <- quantile(HCx_vec, 0.025, na.rm=T)
+        output_list$Q97.5 <- quantile(HCx_vec, 0.975, na.rm=T)
+        output_list$MC_logHC20ec10eq = output_list$mean_HCx + (-0.842 * output_list$sd_HCx)
         output_list$n_sp <- as.numeric(error_df[,"n_sp"])
         output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
         output_list$n_recs <- as.numeric(error_df[,"n_recs"])
         # Comparing variation across chemicals using the geoSD and first back-log-transform all the log-data
-        output_list$Geometric_St.Dev <- geoSD(10^HCx_vec)
+        output_list$Geo_St.Dev <- geoSD(10^HCx_vec)
         output_list$HCx_vec <- HCx_vec # for plotting a histogram over the HC20EC10eq Monte Carlo data distribution
         output_list$nls_results <- list(nls_out)
-        #hist <- hist(HCx_vec)
-        
+        output_list[c(2:4, 6, 10:16)] <- lapply(output_list[c(2:4, 6, 10:16)], round, digits = 4)
         # Calculating the confidence intervals for mu and sigma at HC20 working point
         # confint_res <- confint(output_list$nls_results[[1]], parm = c("mu", "sig"), level = 0.95)
         # output_list$Q2.5 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd = coef(nls_out)[2])
@@ -216,19 +213,21 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
                       method.args = list(start = cnormSS(sp_mean ~ sd_Li, data = d.frame)),
                       se =  FALSE) + # this is important
           #geom_ribbon(aes(ymin=Q2.5, ymax=Q97.5), alpha=0.2, na.rm = TRUE) +
-          geom_point(aes(x = output_list$log_HC20EC10eq, y = ({{HCx}}/100), color = "HC20EC10eq", shape = "HC20EC10eq"), inherit.aes = F) +
+          geom_point(aes(x = output_list$log_HCxEC10, y = ({{HCx}}/100), color = "HC20EC10eq", shape = "HC20EC10eq"), inherit.aes = F) +
+          geom_point(aes(x = output_list$MC_logHC20ec10eq, y = ({{HCx}}/100), color = "MC_logHC20ec10eq", shape = "MC_logHC20ec10eq"), inherit.aes = F) +
+          geom_point(aes(x = output_list$non_W_HCxEC10, y = ({{HCx}}/100), color = "non_W_HCxEC10", shape = "non_W_HCxEC10"), inherit.aes = F) +
           scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), labels = c("0", "20", "40", "60", "80", "100")) +
           scale_color_manual(name = element_blank(),
                              aesthetics = c("color"),
-                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
-                             values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue")
+                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile","MC_logHC20ec10eq", "non_W_HCxEC10"),
+                             values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue", "MC_logHC20ec10eq" = "purple", "non_W_HCxEC10" = "black")
           ) +
           scale_shape_manual(name = element_blank(),
-                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
-                             values = c(15, 17, 19)
+                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile", "MC_logHC20ec10eq", "non_W_HCxEC10"),
+                             values = c(15, 8, 17, 19, 13)
           ) +
           labs(title = paste("CAS", output_list$CAS.Number, sep = " "),
-               subtitle = paste("log10HC", {{HCx}}, "EC10eq"," = ", round(output_list$log_HC20EC10eq, digits = 4), sep = ""),
+               subtitle = paste("log10HC", {{HCx}}, "EC10eq"," = ", round(output_list$log_HCxEC10, digits = 4), sep = ""),
                x = "mean(log) EC10eq (mg L-1)",
                y = "Response level (%)") +
           theme_linedraw() +
@@ -240,8 +239,8 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
             legend.box.margin = margin(-3,-3,-3,-3),
             legend.spacing.y = unit(1, "mm"),
             legend.key.size = unit(4, 'mm'),
-            legend.title = element_text(size=8),
-            legend.text = element_text(size=6)
+            legend.title = element_text(size=10),
+            legend.text = element_text(size=8)
           )
      
         #ggsave(filename = paste("SSD", output_list$CAS.Number,".png", sep = "_"), plot = last_plot(), device = "png", path = paste(Plot_destination, "/", sep = ""))

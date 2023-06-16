@@ -7,7 +7,7 @@ library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
 require(EnvStats) # <- to calculate Geometric St.Dev as a comparative unitless measure across all data
 
-test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(CAS.Number == "100-00-5")
+test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(CAS.Number == "100-25-4")
 #Loading all prerequisites
 {
   ### Loading functions to base nls on ###
@@ -42,6 +42,8 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
   
   ### create a template list-object to fill ###
   output_df <- list(CAS.Number = NULL, log_HC20EC10eq = NULL,
+                    MC_logHC20ec10eq = NULL,
+                    non_W_HCxEC10 = NULL,
                     CRF  = NULL, mu  = NULL, sigma  = NULL,
                     Q2.5 = NULL, Q97.5 = NULL,
                     n_sp = NULL, n_tax.grp = NULL,
@@ -70,7 +72,8 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
         arrange(y_rank) %>%
         mutate(Taxonomy.Group = as.factor(Taxonomy.Group))
       
-     
+      z_HCx <- sqrt(2)*erfinv(2*(20/100)-1)
+      output_df$non_W_HCxEC10 <- mean(d.frame$sp_mean, na.rm = T) + (z_HCx * sd(d.frame$sp_mean, na.rm = T))
         # The nonlinear least squares (nls()) function assuming a cumulative normal distribution
         nlc <- nls.control(maxiter = 1000, warnOnly = TRUE)
         nls_out <- nls(y_rank ~ cum_norm_dist_function(sp_mean, mu, sig), 
@@ -94,20 +97,24 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
         
         catch_warning <- list(warn = "")
         
+        #summary(nls_out)$parameters[1,2]
+        # summary(nls_out)$parameters[2,2]
+        #coef(nls_out)[1]
         # Define the number of runs
         MC_n = 10000  
         # Monte carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
-        MC_mu <- rnorm(MC_n, mean = coef(nls_out), sd = summary(nls_out)$parameters[1,2])
+        MC_mu <- rnorm(MC_n, mean = summary(nls_out)$parameters[1,1], sd = summary(nls_out)$parameters[1,2])
         # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
-        MC_sig <- rnorm(MC_n, mean = coef(nls_out), sd = summary(nls_out)$parameters[2,2])
+        MC_sig <- rnorm(MC_n, mean = summary(nls_out)$parameters[2,1], sd = summary(nls_out)$parameters[2,2])
         # these two vectors is used to construt HC20 using the qnorm()
         HC20_vec <- qnorm((20/100), mean = MC_mu, sd = MC_sig)
         hist(HC20_vec)
         output_df$HC20_vec[i] <- list(HC20_vec)
-        mean_HC20_vec <- mean(HC20_vec)
-        sd_HC20_vec <- sd(HC20_vec)
-        output_df$Q2.5[i] <- quantile(HC20_vec, 0.025)
-        output_df$Q97.5[i] <- quantile(HC20_vec, 0.975)
+        mean_HC20_vec <- mean(HC20_vec, na.rm = T)
+        sd_HC20_vec <- sd(HC20_vec, na.rm = T)
+        output_df$MC_logHC20ec10eq[i] = mean_HC20_vec + (-0.842 * sd_HC20_vec) 
+        output_df$Q2.5[i] <- quantile(HC20_vec, 0.025, na.rm = T)
+        output_df$Q97.5[i] <- quantile(HC20_vec, 0.975, na.rm = T)
         
         # Presenting the uncertainties across the whole dataset
           # install.packages("EnvStats")
@@ -147,15 +154,17 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
                             se =  FALSE) + # this is important
                 #geom_ribbon(aes(xmin=sp_mean - Q2.5, xmax= sp_mean + Q97.5), alpha=0.2) +
                 geom_point(aes(x = output_df$log_HC20EC10eq[i], y = (20/100), color = "HC20EC10eq", shape = "HC20EC10eq"), inherit.aes = F) +
+                geom_point(aes(x = output_df$MC_logHC20ec10eq[i], y = (20/100), color = "MC_logHC20ec10eq", shape = "MC_logHC20ec10eq"), inherit.aes = F) +
+                geom_point(aes(x = output_df$non_W_HCxEC10[i], y = (20/100), color = "non_W_HCxEC10", shape = "non_W_HCxEC10"), inherit.aes = F) +
                 scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), labels = c("0", "20", "40", "60", "80", "100")) +
                 scale_color_manual(name = element_blank(),
                                    aesthetics = c("color"),
-                                   labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
-                                   values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue")
+                                   labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile", "MC_logHC20ec10eq", "non_W_HCxEC10"),
+                                   values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue", "MC_logHC20ec10eq" = "purple", "non_W_HCxEC10" = "black")
                 ) +
                 scale_shape_manual(name = element_blank(),
-                                   labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile"),
-                                   values = c(15, 17, 19)
+                                   labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile", "MC_logHC20ec10eq", "non_W_HCxEC10"),
+                                   values = c(15, 17, 19, 8, 14)
                 ) +
                 labs(title = paste("CAS", output_df$CAS.Number[i], sep = " "),
                      subtitle = paste("log10HC", 20, "EC10eq"," = ", round(output_df$log_HC20EC10eq[i], digits = 4), " ", catch_warning[i], sep = ""),
@@ -182,7 +191,7 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
     }
   
 # sum <- summary(nls_out)
-summary(nls_out)[7]$convInfo$finIter # Number of iterations to convergence 
-summary(nls_out)[7]$convInfo$finTol # Achieved convergence tolerance 
+#summary(nls_out)[7]$convInfo$finIter # Number of iterations to convergence 
+#summary(nls_out)[7]$convInfo$finTol # Achieved convergence tolerance 
 # sum[7]$convInfo$finIter # get data on Number of iterations to convergence 
 # sum[7]$convInfo$finTol # get data on Achieved convergence tolerance
