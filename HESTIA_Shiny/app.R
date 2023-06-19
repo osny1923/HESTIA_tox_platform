@@ -20,61 +20,7 @@ ui <- fluidPage(
     )),
   
   tabsetPanel(
-    
-    tabPanel("HESTIA Ecotox database explorer",
-             sidebarLayout(
-               sidebarPanel(
-                 width = 2,
-                 class = "custom-sidebar",
-                 #selectInput("column", "Select Column:", choices = c("CAS.Number", "PesticideAI_name", "Substance_type")),
-                 #textInput("search", "Search Value:", placeholder = "Enter search value"),
-                 #actionButton("filterButton_1", "Apply Filter"),
-                 #actionButton("clearButton_1", "Clear Filter"),
-                 #br(),
-                 #br(),
-                 br(),
-                 checkboxGroupInput("Chem_categories", "Select Chemical Category:", 
-                    choices = c("Antibiotic", "Antiviral", "Other inorganic chemicals",
-                                "Other organic chemicals", "PPCP", "Pesticide",
-                                "Pharmaceutical", "Unknown"),
-                    selected = c("Antibiotic", "Antiviral", "Other inorganic chemicals",
-                                 "Other organic chemicals", "PPCP", "Pesticide",
-                                 "Pharmaceutical", "Unknown"))
-               ),
-               
-               mainPanel(
-                 width = 10,
-                 br(),
-                 br(),
-                 br(),
-                 div(style = "width:99%; height:100%; overflow-x:auto; overflow-y:auto;",
-                     DT::dataTableOutput("resultsTable")
-                 )
-               )
-             )
-    ),
-    
-    tabPanel("HC20 uncertainty",
-             sidebarLayout(
-               sidebarPanel(
-                 width = 2,
-                 class = "custom-sidebar",
-                 textInput("search_2", "Search Value:", placeholder = "Enter search value"),
-                 actionButton("filterButton_2", "Apply Filter"),
-                 actionButton("clearButton_2", "Clear Filter"),
-                 checkboxInput("OnlyValid", "Only view valid model data", value = FALSE)
-                 ),
-               
-               mainPanel(
-                 width = 10,
-                 div(style = "width:100%; overflow-x:auto",
-                     DT::dataTableOutput("resultsTable_uncert")
-                 )
-               )
-             ),
-             
-    ),
-    
+  
     tabPanel("SSD curves",
              sidebarLayout(
                sidebarPanel(
@@ -118,7 +64,61 @@ ui <- fluidPage(
                             )
                    
              ) 
-            )
+            ),
+    
+    tabPanel("HC20 uncertainty",
+             sidebarLayout(
+               sidebarPanel(
+                 width = 2,
+                 class = "custom-sidebar",
+                 textInput("search_2", "Search Value:", placeholder = "Enter search value"),
+                 actionButton("filterButton_2", "Apply Filter"),
+                 actionButton("clearButton_2", "Clear Filter"),
+                 checkboxInput("OnlyValid", "Only view valid model data", value = FALSE)
+               ),
+               
+               mainPanel(
+                 width = 10,
+                 div(style = "width:100%; overflow-x:auto",
+                     DT::dataTableOutput("resultsTable_uncert")
+                 )
+               )
+             ),
+             
+    ),
+    
+    tabPanel("HESTIA Ecotox database explorer",
+             sidebarLayout(
+               sidebarPanel(
+                 width = 2,
+                 class = "custom-sidebar",
+                 #selectInput("column", "Select Column:", choices = c("CAS.Number", "PesticideAI_name", "Substance_type")),
+                 #textInput("search", "Search Value:", placeholder = "Enter search value"),
+                 #actionButton("filterButton_1", "Apply Filter"),
+                 #actionButton("clearButton_1", "Clear Filter"),
+                 #br(),
+                 #br(),
+                 br(),
+                 checkboxGroupInput("Chem_categories", "Select Chemical Category:", 
+                                    choices = c("Antibiotic", "Antiviral", "Other inorganic chemicals",
+                                                "Other organic chemicals", "PPCP", "Pesticide",
+                                                "Pharmaceutical", "Unknown"),
+                                    selected = c("Antibiotic", "Antiviral", "Other inorganic chemicals",
+                                                 "Other organic chemicals", "PPCP", "Pesticide",
+                                                 "Pharmaceutical", "Unknown"))
+               ),
+               
+               mainPanel(
+                 width = 10,
+                 br(),
+                 br(),
+                 br(),
+                 div(style = "width:99%; height:100%; overflow-x:auto; overflow-y:auto;",
+                     DT::dataTableOutput("resultsTable")
+                 )
+               )
+             )
+    )
   )
 )
 
@@ -166,7 +166,26 @@ server <- function(input, output, session) {
                     pageLength = 10,
                     columnDefs = list(
                       list(
-                        targets = 3,
+                        targets = c(8,10:11, 17:21),
+                        render = JS(
+                          "function(data, type, row, meta) {",
+                          "  if (type === 'display' || type === 'filter') {",
+                          "    if (data === null || data === '') {",
+                          "      return '';",
+                          "    } else {",
+                          "      if (meta.col >= 13 && meta.col <= 16) {",
+                          "        return parseFloat(data).toExponential(2);",  # Convert to scientific notation with 2 decimals
+                          "      } else {",
+                          "        return parseFloat(data).toFixed(3);",  # Default behavior for other columns (3 decimals)
+                          "      }",
+                          "    }",
+                          "  } else {",
+                          "    return data;",
+                          "  }",
+                          "}")
+                      ),
+                      list(
+                        targets = 2:3,
                         render = JS(
                           "function(data, type, row, meta) {",
                           "return type === 'display' && data.length > 20 ?",
@@ -200,7 +219,7 @@ server <- function(input, output, session) {
     }
     
     if(isTRUE(checkOnlyValid)){
-     filteredData_uncert <- data_uncert() %>% filter(status == "OK")
+     filteredData_uncert <- data_uncert() %>% filter(status == "Convergence")
     } else{
       filteredData_uncert <- data_uncert()
     }
@@ -214,7 +233,33 @@ server <- function(input, output, session) {
                     pageLength = 25,
                     autoWidth = TRUE,
                     formatRound = 4,
-                    dom = "ltirp"
+                    dom = "ltirp",
+                    columnDefs = list(
+                      list(
+                      targets = c(2:9, 12, 15),
+                        render = JS(
+                          "function(data, type, row, meta) {",
+                          "  if (type === 'display' || type === 'filter') {",
+                          "    if (data === null || data === '') {",
+                          "      return '';",
+                          "    } else {",
+                          "      if ((meta.col >= 2 && meta.col <= 9) || meta.col === 15) {",
+                          "        if (parseFloat(data) === 0) {",  # Check if value is zero
+                          "          return '0';",  # Print as '0'
+                          "        } else {",
+                          "          return parseFloat(data).toExponential(2);",  # Convert to scientific notation with 2 decimals
+                          "        }",
+                          "      } else {",
+                          "        if (meta.col === 12) {",
+                          "          return parseFloat(data).toFixed(0);",  # Default behavior for other columns (3 decimals)
+                          "        }",
+                          "      }",
+                          "    }",
+                          "  } else {",
+                          "    return data;",
+                          "  }",
+                          "}")
+                      ))
                     ))
   }
   )
@@ -226,7 +271,7 @@ server <- function(input, output, session) {
   
 ### SSD plots ### -------------------------------------------------
   # Read the NLS dataset
-  valid_SSD_dataset <- read.csv("data/nls_output_df.csv") %>% filter(status == "OK") %>% pull(CAS.Number)
+  valid_SSD_dataset <- read.csv("data/nls_output_df.csv") %>% filter(status == "Convergence") %>% pull(CAS.Number)
   
   SSDdata <- reactive({
  read.csv("data/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% 
@@ -258,15 +303,20 @@ server <- function(input, output, session) {
         mutate(across(c(2:16), ~ as.numeric(.x))) %>% 
         `rownames<-`( NULL )
     return(outputDf)
-  }, options = list(dom = "t")
+  }, 
+  options = list(
+    dom = 'frtip'
+    )
   )
   
   # Render the RAW data table used for SSDs
   output$outputRAWData <- renderDataTable({
     outputRAWDf <- SSDdata() %>% filter(CAS.Number == input$casNumberInput)
     return(outputRAWDf)
-  }, options = list(
-    dom = "t",
+  },
+  options = list(
+    autoWidth = TRUE,
+    #dom = 't',
     pageLength = 3000,
     columnDefs = list(
       list(
@@ -277,7 +327,7 @@ server <- function(input, output, session) {
           "  if (data === null || data === '') {",
           "    return '';",
           "  } else {",
-          "    return parseFloat(data).toFixed(3);",
+          "    return parseFloat(data).toExponential(3);",  # Convert to scientific notation with 2 decimals
           "  }",
           "} else {",
           "  return data;",
@@ -307,7 +357,7 @@ server <- function(input, output, session) {
     req(input$casNumberInput, input$hcInput, input$MC_n)
     # index the ggplot object
     hist_dat <- outputData()[[1]]
-    hist(hist_dat$HCx_vec, main = paste("Histogram of Monte Carlo HC", hist_dat$Resp_lvl, "EC10eq-values. ", input$MC_n/1000, "K iterations", sep = ""))
+    hist(hist_dat$HCx_vec[[1]], main = paste("Histogram of Monte Carlo HC", hist_dat$Resp_lvl, "EC10eq-values. ", input$MC_n/1000, "K iterations", sep = ""))
     })
   
   # Downloadable csv of selected dataset ----

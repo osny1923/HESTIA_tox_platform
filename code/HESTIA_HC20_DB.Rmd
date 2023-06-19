@@ -225,9 +225,11 @@ HESTIA_HC20_DB_Control.Type_filter <- HESTIA_HC20_DB_qualifier_filter %>%
     #Presents ridiculously low effect concentrations from micrplastic study on D. rerio embryos concentrations reported are used as an effect test result! incorrect entry into database
     !grepl("Multi-Laboratory Hazard Assessment of Contaminated Microplastic Particles by Means of Enhanced Fish Embryo Test with the Zebrafish", Title),
     # Study runs toxicological effect testing across a range of temperatures, leading to skewed data output.
-    !grepl("Water Toxicology and Radioecology. Acute Toxicity of Heavy Metals to Aquatic Invertebrates at Different Temperatures", Title)
+    !grepl("Water Toxicology and Radioecology. Acute Toxicity of Heavy Metals to Aquatic Invertebrates at Different Temperatures", Title),
+    # The Japan MoE Ecotoxicological tests on chemical Hexabromobenzene, CASRN=87-82-1, is reported with data 6 orders of magnitude from all other data, and the specific test report is not to traceable.
+    Database != "Aquatic Japan MoE" | CAS.Number != "87-82-1"
   )
- 
+
 ```
 
 ## Test media (Freshwater & culture media filter)
@@ -623,6 +625,7 @@ HESTIA_BASE_dat <- Q_dat %>%
 HESTIA_BASE_EnviroTox_FILL <- rbind(HESTIA_BASE_dat, EnviroTox_Q_dat)
 
 write.csv(HESTIA_BASE_EnviroTox_FILL, "../results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv", row.names = F)
+write.csv(HESTIA_BASE_EnviroTox_FILL, "../HESTIA_Shiny/data/FINAL_HESTIA_BASE_EnviroTox_FILL.csv", row.names = F)
 ```
 
 ## Merging all physchem & subst. use-type annotations 
@@ -680,17 +683,24 @@ write.csv(uncert_data, "../results/HESTIA_data_distribution_summary.csv", row.na
 ```{r}
 # Dataset to analyze is object `HESTIA_BASE_EnviroTox_FILL`
 
-# # load the nls function
-#  source("code/least_squares_fit_model_code.R")
-# # 
-# # # Running the operation with the HESTIA toxicity dataset, generating a list object
-#  system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "YES", Plot_destination = "figures/SSD_plots"))
-# # 
-# # #Transform into a dataframe - removing the list of lists containing full nls-output
-# # nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:11])) %>%
-# #  mutate(across(c(2:10), ~ as.numeric(.x)),
-# #         CAS.Number = as.factor(CAS.Number))
-# # write.csv(nls_output_df, "results/nls_output_df.csv", row.names = F)
+# load the nls function
+ source("../code/least_squares_fit_model_code.R")
+ # Running the operation with the HESTIA toxicity data set, generating a list object
+system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "NO", MC_n = 1e+05, Plot_destination = "../figures/SSD_plots"))
+
+#Transform into a dataframe - removing the list of lists containing full nls-output
+nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:16])) %>%
+ mutate(across(c(2:15), ~ as.numeric(.x)),
+        CAS.Number = as.factor(CAS.Number),
+        status = as.character(status)) %>% 
+  mutate(status = case_when(status == "warning: step factor reduced below 'minFactor'" ~ "Not enough data",
+                            status == "singular gradient matrix at initial parameter estimates" ~ "One species record",
+                            TRUE ~ status))
+
+write.csv(nls_output_df, "../results/nls_output_df.csv", row.names = F)
+write.csv(nls_output_df, "../HESTIA_Shiny/data/nls_output_df.csv", row.names = F)
+
+nls_output_df <- read.csv("../results/nls_output_df.csv")
 
 ```
 
@@ -710,7 +720,8 @@ HESTIA_envirotox_cfs <- left_join(
     mean_EC10eq, Sd_EC10eq, HC20EC10eq,
     Molecular.formula, Predefined.substance.type, Substance_type, Group, Subgroup, Heavy.Metals, Halogenated, definition, n_data_recs, n_species, sum_extrapolations, n_Taxonomy.Group 
     )
-  )
+  ) %>% 
+  mutate(across(contains("Kdeg"), ~ formatC(., format = "e")))
 
 write.csv(HESTIA_envirotox_cfs, "../HESTIA_Shiny/data/HESTIA_envirotox_cfs.csv", row.names = F)
 

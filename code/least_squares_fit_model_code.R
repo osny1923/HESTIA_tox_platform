@@ -40,20 +40,21 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
   error_df <- dataset %>%
     count({{CAS}}, {{Tax}}, {{Sp}}) %>%
     group_by({{CAS}}) %>%
-    summarise(n_sp = length(unique(Species)), n_tax.grp = length(unique(Taxonomy.Group)), n_recs = sum(n)) %>%
+    summarise(n_sp = n_distinct({{Sp}}), n_tax.grp = n_distinct({{Tax}}), n_recs = sum(n)) %>%
     arrange(CAS.Number)
   
   ### create a template list-object to fill ###
-  output_df <- list(CAS.Number = vector("character", length = length(CAS_list)), 
+  #output_df <- vector("list", length = length(CAS_list))
+  output_df <- list(CAS.Number = vector("character", length = length(CAS_list)),
                     log_HC20EC10eq = vector("numeric", length = length(CAS_list)),
-                    CRF = vector("numeric", length = length(CAS_list)), 
-                    mu = vector("numeric", length = length(CAS_list)), 
+                    CRF = vector("numeric", length = length(CAS_list)),
+                    mu = vector("numeric", length = length(CAS_list)),
                     sigma = vector("numeric", length = length(CAS_list)),
                     mean_HCx = vector("numeric", length = length(CAS_list)),
                     sd_HCx  = vector("numeric", length = length(CAS_list)),
-                    Q2.5 = vector("numeric", length = length(CAS_list)), 
+                    Q2.5 = vector("numeric", length = length(CAS_list)),
                     Q97.5 = vector("numeric", length = length(CAS_list)),
-                    n_sp = vector("numeric", length = length(CAS_list)), 
+                    n_sp = vector("numeric", length = length(CAS_list)),
                     n_tax.grp = vector("numeric", length = length(CAS_list)),
                     n_recs = vector("numeric", length = length(CAS_list)),
                     Geo_St.Dev = vector("numeric", length = length(CAS_list)),
@@ -64,39 +65,39 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
                     MC_mu = vector("list", length = length(CAS_list)),
                     MC_sig = vector("list", length = length(CAS_list)),
                     HCx_vec = vector("list", length = length(CAS_list)))
-  
+
   # Create a dummy integer "i"
   i = 1
   
   ### Start looping each substance ###
   # Producing a list object where data per substance is gathered, along with the nls models in last list-column.
-  while (i <= length(CAS_list)) {
+  for (i in seq_along(CAS_list)) {
     # If insufficient data (number of species <5 and/or numbre of taxonomic groups <3), print statement "not enough data" and move to the next substance. 
-    if (error_df[i,"n_sp"] <5 | error_df[i,"n_tax.grp"] <3) {
-      output_df$CAS.Number[i] <- CAS_list[i]
-      output_df$log_HC20EC10eq[i] <- as.numeric(NA)
-      output_df$CRF[i] <- as.numeric(NA)
-      output_df$mu[i] <- as.numeric(NA)
-      output_df$sigma[i] <- as.numeric(NA)
-      output_df$Q2.5[i] <- as.numeric(NA)
-      output_df$Q97.5[i] <- as.numeric(NA)
-      output_df$status[i] <- "not enough data"
-      output_df$n_sp[i] <- as.numeric(error_df[i,"n_sp"])
-      output_df$n_tax.grp[i] <- as.numeric(error_df[i,"n_tax.grp"])
-      output_df$n_recs[i] <- as.numeric(error_df[i,"n_recs"])
-      output_df$mean_HCx[i] <- as.numeric(NA)
-      output_df$sd_HCx[i] <- as.numeric(NA)
-      output_df$Geo_St.Dev[i] <- as.numeric(NA)
-      output_df$Iterations.to.Convergence[i] <- as.numeric(NA)
-      output_df$Achieved.convergence.tolerance[i] <- as.numeric(NA)
-      output_df$MC_mu[i] <- as.numeric(NA)
-      output_df$MC_sig[i] <- as.numeric(NA)
-      output_df$HCx_vec[i] <- as.numeric(NA)
-      output_df$nls_results[i] <- as.numeric(NA)
-      i = i+1
-    }
-    
-    else {
+    # if (error_df[i,"n_sp"] <5 | error_df[i,"n_tax.grp"] <3) {
+    #   output_df$CAS.Number[i] <- CAS_list[i]
+    #   output_df$log_HC20EC10eq[i] <- as.numeric(NA)
+    #   output_df$CRF[i] <- as.numeric(NA)
+    #   output_df$mu[i] <- as.numeric(NA)
+    #   output_df$sigma[i] <- as.numeric(NA)
+    #   output_df$Q2.5[i] <- as.numeric(NA)
+    #   output_df$Q97.5[i] <- as.numeric(NA)
+    #   output_df$status[i] <- "not enough data"
+    #   output_df$n_sp[i] <- as.numeric(error_df[i,"n_sp"])
+    #   output_df$n_tax.grp[i] <- as.numeric(error_df[i,"n_tax.grp"])
+    #   output_df$n_recs[i] <- as.numeric(error_df[i,"n_recs"])
+    #   output_df$mean_HCx[i] <- as.numeric(NA)
+    #   output_df$sd_HCx[i] <- as.numeric(NA)
+    #   output_df$Geo_St.Dev[i] <- as.numeric(NA)
+    #   output_df$Iterations.to.Convergence[i] <- as.numeric(NA)
+    #   output_df$Achieved.convergence.tolerance[i] <- as.numeric(NA)
+    #   output_df$MC_mu[i] <- as.numeric(NA)
+    #   output_df$MC_sig[i] <- as.numeric(NA)
+    #   output_df$HCx_vec[i] <- as.numeric(NA)
+    #   output_df$nls_results[i] <- as.numeric(NA)
+    #   i = i+1
+    # }
+    # 
+    #else {
       ### Using the input dataset to get counts, means and Sd.
       d.frame <- dataset %>%
         filter({{CAS}} == CAS_list[i]) %>%
@@ -121,7 +122,7 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
       output_df$status[i] <- tryCatch({
         
       # The nonlinear least squares (nls()) function assuming a cumulative normal distribution
-      nlc <- nls.control(maxiter = 1000, warnOnly = TRUE)
+      nlc <- nls.control(maxiter = 250, warnOnly = TRUE)
       nls_out <- nls(y_rank ~ cum_norm_dist_function(sp_mean, mu, sig), 
                      control = nlc, 
                      data=d.frame, 
@@ -245,7 +246,7 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
         # Increase the tick by one
         i = i+1
       }
-    }
+   # }
   }
   return(output_df)
 }

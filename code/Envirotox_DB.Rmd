@@ -92,6 +92,19 @@ EnviroTox_taxaDB <- readxl::read_xlsx(path = "../data/Envirotox_2023-01-10/envir
    separate(col = Species, sep = " var ", into = "Species", remove = F, convert = T) %>%
    separate(col = Species, sep = " ", into = "Genus", remove = F, convert = T)
 
+#### NEED TO UPDATE SPECIES NAMES TO CURRENT NAMES!
+# Using the updated species names extract from Taxonomy_wrangling-Rmd
+EnviroTox_taxaDB <- EnviroTox_taxaDB %>% 
+  left_join(x = ., 
+            y = read.csv("../data/Taxonomy/names_update.csv") %>% 
+              rename(Species = old_name),
+            by = "Species") %>% 
+  mutate(
+    Species = case_when(!is.na(current_name) ~ current_name, TRUE ~ Species),
+    Genus = case_when(stringr::word(Species, 1) != Genus ~ stringr::word(Species, 1), TRUE ~ Genus)
+         ) %>% 
+  select(-current_name)
+
 EnviroTox_toxDB <- readxl::read_xlsx(
   path = "../data/Envirotox_2023-01-10/envirotox_DB_20230110081208.xlsx", 
   sheet = "test", col_names = T, 

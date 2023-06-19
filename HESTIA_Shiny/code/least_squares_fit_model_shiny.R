@@ -6,17 +6,7 @@ library(pracma)
 library(rlang)
 library(nlraa) # <- contains the "predict2_nls" function
 require(EnvStats) # <- to calculate Geometric St.Dev as a comparative unitless measure across all data
-# # #### TEST
-#   dataset <- HESTIA_BASE_EnviroTox_FILL %>% filter(CAS.Number == "100-00-5")
-# # #
-#   nls_data_test <- nls_across_shiny(dataset = dataset, "100-00-5", HCx = 20)
-#   nls_t <- nls_data_test[[1]]
-# #  test <- data.frame(do.call(cbind, nls_t[1:14])) %>%
-# #    mutate(across(c(2:14), ~ as.numeric(.x)))
-# hist(nls_t$HCx_vec)
 
-# nonweighted_data <- read.csv("data/HESTIA_HC20_dataset.csv", header = TRUE) %>% select(CAS.Number, HC20EC10eq)
-                             
 nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
   options(dplyr.summarise.inform = FALSE)
   ### Loading functions to base nls on ###
@@ -67,37 +57,41 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
                     Geo_St.Dev = NULL,
                     status = NULL,
                     nls_results = NULL,
-                    HCx_vec = NULL)
+                    HCx_vec = NULL,
+                    MC_mu = NULL,
+                    MC_sig = NULL)
 
     # If insufficient data (number of species <5 and/or number of taxonomic groups <3), print statement "not enough data" and move to the next substance. 
-    if (error_df[,"n_sp"] <5 | error_df[,"n_tax.grp"] <3) {
-      output_list$CAS.Number <- {{CAS}}
-      output_list$log_HCxEC10 <- as.numeric(NA)
-      output_list$CRF <- as.numeric(NA)
-      output_list$mu <- as.numeric(NA)
-      output_list$sigma <- as.numeric(NA)
-      output_list$mean_HCx <- as.numeric(NA)
-      output_list$sd_HCx  <- as.numeric(NA)
-      output_list$Q2.5 <- as.numeric(NA)
-      output_list$Q97.5 <- as.numeric(NA)
-      output_list$status <- "not enough data"
-      output_list$n_sp <- as.numeric(error_df[,"n_sp"])
-      output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
-      output_list$n_recs <- as.numeric(error_df[,"n_recs"])
-      output_list$HCx_vec <- as.numeric(NA)
-      output_list$nls_results <- as.numeric(NA)
-      # Create a blank plot
-      plt <- ggplot() +
-        theme_void() +
-        labs(title = "WARNING: Too few data points to produce an SSD curve", 
-             subtitle = NULL, 
-             x = NULL, 
-             y = NULL)
-      
-        
-    }
-    
-    else {
+    # if (error_df[,"n_sp"] <5 | error_df[,"n_tax.grp"] <3) {
+    #   output_list$CAS.Number <- {{CAS}}
+    #   output_list$log_HCxEC10 <- as.numeric(NA)
+    #   output_list$CRF <- as.numeric(NA)
+    #   output_list$mu <- as.numeric(NA)
+    #   output_list$sigma <- as.numeric(NA)
+    #   output_list$mean_HCx <- as.numeric(NA)
+    #   output_list$sd_HCx  <- as.numeric(NA)
+    #   output_list$Q2.5 <- as.numeric(NA)
+    #   output_list$Q97.5 <- as.numeric(NA)
+    #   output_list$status <- "not enough data"
+    #   output_list$n_sp <- as.numeric(error_df[,"n_sp"])
+    #   output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
+    #   output_list$n_recs <- as.numeric(error_df[,"n_recs"])
+    #   output_list$HCx_vec <- as.numeric(NA)
+    #   output_list$nls_results <- as.numeric(NA)
+    #   # Create a blank plot
+    #   plt <- ggplot() +
+    #     theme_void() +
+    #     labs(title = "WARNING: Too few data points to produce an SSD curve", 
+    #          subtitle = NULL, 
+    #          x = NULL, 
+    #          y = NULL)
+    #   
+    #     
+    # }
+    # 
+    # else {
+  
+  
       ### Using the input dataset to get counts, means and Sd.
       d.frame <- dataset %>%
          filter(CAS.Number == {{CAS}}) %>% 
@@ -149,48 +143,45 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
         output_list$nls_results <- as.numeric(NA)
         
       } else { #Run Monte Carlo analysis on the distribution of HC20EC10eq data to assess uncertainty!
+        output_list$nls_results <- list(nls_out)
+        output_list$CAS.Number <- {{CAS}}
+        
         # Defining the number of runs is done in the function using parameter (MC_n)
         # Monte Carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
-        MC_mu <- rnorm({{MC_n}}, mean = summary(nls_out)$parameters[1,1], sd = summary(nls_out)$parameters[1,2])
+        output_list$MC_mu <- list(rnorm({{MC_n}}, mean = summary(output_list$nls_results[[1]])$parameters[1,1], sd = summary(output_list$nls_results[[1]])$parameters[1,2]))
         # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
-        MC_sig <- rnorm({{MC_n}}, mean = summary(nls_out)$parameters[2,1], sd = summary(nls_out)$parameters[2,2])
+        output_list$MC_sig <- list(rnorm({{MC_n}}, mean = summary(output_list$nls_results[[1]])$parameters[2,1], sd = summary(output_list$nls_results[[1]])$parameters[2,2]))
         # these two vectors is used to construt HC20 using the qnorm()
-        HCx_vec <- qnorm(({{HCx}}/100), mean = MC_mu, sd = MC_sig)
+        output_list$HCx_vec <- list(qnorm(({{HCx}}/100), mean = output_list$MC_mu[[1]], sd = output_list$MC_sig[[1]]))
         
         # assigning all the lists with respectively generated data
         # assign CAS.Number to output df
-        output_list$CAS.Number <- {{CAS}}
         # Automating extraction of the mu & sig nls results
         output_list$log_HCxEC10 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd =  coef(nls_out)[2]) # gives me a point value of the corresponding HC20 (data fetched from console output)
         output_list$CRF <- ({{HCx}}/100)/(10^output_list$log_HCxEC10)
-        output_list$mu <- coef(nls_out)[1]
-        output_list$sigma <- coef(nls_out)[2]
+        output_list$mu <- coef(output_list$nls_results[[1]])[1]
+        output_list$sigma <- coef(output_list$nls_results[[1]])[2]
         
-        output_list$mean_HCx <- mean(HCx_vec, na.rm=T)
-        output_list$sd_HCx <- sd(HCx_vec, na.rm=T)
-        output_list$Q2.5 <- quantile(HCx_vec, 0.025, na.rm=T)
-        output_list$Q97.5 <- quantile(HCx_vec, 0.975, na.rm=T)
+        output_list$mean_HCx <- mean(output_list$HCx_vec[[1]], na.rm=T)
+        output_list$sd_HCx <- sd(output_list$HCx_vec[[1]], na.rm=T)
+        output_list$Q2.5 <- quantile(output_list$HCx_vec[[1]], 0.025, na.rm=T)
+        output_list$Q97.5 <- quantile(output_list$HCx_vec[[1]], 0.975, na.rm=T)
         output_list$MC_logHC20ec10eq = output_list$mean_HCx + (-0.842 * output_list$sd_HCx)
         output_list$n_sp <- as.numeric(error_df[,"n_sp"])
         output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
         output_list$n_recs <- as.numeric(error_df[,"n_recs"])
         # Comparing variation across chemicals using the geoSD and first back-log-transform all the log-data
-        output_list$Geo_St.Dev <- geoSD(10^HCx_vec)
-        output_list$HCx_vec <- HCx_vec # for plotting a histogram over the HC20EC10eq Monte Carlo data distribution
-        output_list$nls_results <- list(nls_out)
+        output_list$Geo_St.Dev <- geoSD(10^output_list$HCx_vec[[1]], na.rm = TRUE)
+        #output_list$HCx_vec <- output_list$HCx_vec[[1]] # for plotting a histogram over the HC20EC10eq Monte Carlo data distribution
+        
         output_list[c(2:4, 6, 10:16)] <- lapply(output_list[c(2:4, 6, 10:16)], round, digits = 4)
-        # Calculating the confidence intervals for mu and sigma at HC20 working point
-        # confint_res <- confint(output_list$nls_results[[1]], parm = c("mu", "sig"), level = 0.95)
-        # output_list$Q2.5 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd = coef(nls_out)[2])
-        # output_list$Q97.5 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd = coef(nls_out)[2], lower.tail = FALSE)
-      
         
   # Plotting output!
   if (class(output_list$nls_results[[1]]) == "nls") {
       d.frame <- cbind(d.frame, predict2_nls(nls_out, interval = "conf"))
       # Conditionally plot the confidence intervals at HC20 working point, based on if the confint() gives an output or throws an error due to "Conf.int infinity produced" (Starting values are out of bounds)
-      c_int_on <- catch_warning == "" && !is.na(output_list$Q2.5) && !is.na(output_list$Q97.5)
-      if(c_int_on == FALSE) catch_warning <- "Conf.int contains 'NA'"
+      c_int_on <- output_list$status == "Convergence" && !is.na(output_list$Q2.5) && !is.na(output_list$Q97.5)
+      if(c_int_on == FALSE) output_list$status <- "Conf.int contains 'NA'"
       
      ## Catching statement if ggplot did output ssd curves
      output_list$status <-  tryCatch({
@@ -243,8 +234,6 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
             legend.text = element_text(size=8)
           )
      
-        #ggsave(filename = paste("SSD", output_list$CAS.Number,".png", sep = "_"), plot = last_plot(), device = "png", path = paste(Plot_destination, "/", sep = ""))
-     
         "OK"
       }, error = function(Err) {
         "Error: Blank Plot. step factor reduced below 'minFactor'"
@@ -256,7 +245,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
       warning(print(paste("No nls available")))
     }
   }
-}
+#}
   
 return(list(output_list, plt))
 }

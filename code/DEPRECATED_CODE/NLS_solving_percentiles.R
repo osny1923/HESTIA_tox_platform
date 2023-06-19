@@ -37,7 +37,7 @@ test_df <- read.csv("results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% filter(C
   error_df <- test_df %>%
     count(CAS.Number, Taxonomy.Group, Species) %>%
     group_by(CAS.Number) %>%
-    summarise(n_sp = length(unique(Species)), n_tax.grp = length(unique(Taxonomy.Group)), n_recs = sum(n)) %>%
+    summarise(n_sp = n_distinct(Species), n_tax.grp = n_distinct(Taxonomy.Group), n_recs = sum(n)) %>%
     arrange(CAS.Number)
   
   ### create a template list-object to fill ###

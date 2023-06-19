@@ -227,7 +227,7 @@ log(HC20_{EC10^{eq}}) = \hat{\mu} + z_{0.2}\hat{\sigma}
 (\#eq:eq7)
 \end{equation}
 
-where $z_{0.2}$ is approximately -0.84.  
+where $z_{0.2}$ is the inverse of the standard normal distribution, which approximates -0.84.  
 The uncertainty of this estimate basically depends on two elements: the uncertainty in $\hat\mu$ and the uncertainty in $\hat\sigma$. Both of these depend on the degree of fit with the normal distribution, and with the intra-species variation. Our approach will be to fit a normal distribution to the vector of mean values $M_{i}$, weighted with the reciprocal of the variance, $(\frac{1}{E_{i}})^2$.
 Suppose we fit a function ${F(x;\mu,\sigma)}$ to the cumulative distribution of $M_{i}$-values, each of which is associated with a standard error $E_{i}$. We can find the optimal values of $\mu$ and $\sigma$ through a least-squares minimization of the residual:
 
@@ -251,8 +251,12 @@ F(m_{i};\mu,\sigma) = \frac{1}{2}+\frac{1}{2}erf\left( \frac{x-\mu}{\sigma\sqrt{
 (\#eq:eq10)
 \end{equation}
 
-To model estimates for $\hat\mu$ and $\hat\sigma$, we fit a nonlinear least-squares (nls) regression model to the toxicological dose-response data using R-programming language. The script defines the cumulative normal distribution function (Eq. 10) and a self-starting function for the cumulative normal distribution to solve for the least squares residual of $\mu$ and $\sigma$, programming in R allow the use of the `nls()`function for solving cumulative normal distribution functions. Starting points the model are defined as $\mu_{start} = \frac{1}{m}\sum_{i=1}^{m}M_{i}$ and $\sigma_{start} = \frac{1}{m}\sum_{i=1}^{m}S_{i}$ respectively. In cases where only one toxicological record per species is available, $\sigma_{start}$ is not obtainable thus an arbitrary value of $\sigma_{start} = 1$ is used. Then, the function selects the unique CAS numbers and checks that there are at least 5 distinct species and 3 distinct taxonomic groups for each CAS number. If there are insufficient data, the function skips to the next CAS number. If there are sufficient data, the function calculates the mean and standard deviation of the log-transformed EC10eq values for each species within each taxonomic group. The mean values are then ranked and the self-starting function is used to fit a cumulative normal distribution to the ranked means. For each CAS number, the function outputs a list that contains the CAS number, the $log(HC20_{EC10^{eq}})$ value, $CRF_{HC20}$, the estimated parameters of the cumulative normal distribution $\mu$ and $\sigma$, the 2.5 and 97.5 percentiles of the parameter estimates, the number of species and taxonomic groups used in the analysis, the number of records (i.e., EC10 values) for the CAS number, the status of the analysis (i.e., "not enough data" or "converged"), and the raw output from the nls regression (nls_results). If specified, the function also creates a plot of the dose-response curve for each CAS number.  
+To model estimates for $\hat\mu$ and $\hat\sigma$, we fit a nonlinear least-squares model (nls) to the toxicological dose-response data using R-programming language. By assuming a cumulative normal distribution for the data (Eq. 10) and defining a self-starting function for the cumulative normal distribution to start solving for the least squares residual of $\mu$ and $\sigma$, programming in R allow the use of the `nls()`function for this purpose. Starting points the model are defined as $\mu_{start} = \frac{1}{m}\sum_{i=1}^{m}M_{i}$ and $\sigma_{start} = \frac{1}{m}\sum_{i=1}^{m}S_{i}$ respectively. In cases where only one toxicological record per species is available, $\sigma_{start}$ is not obtainable, thus an arbitrary value of $\sigma_{start} = 1$ is used. If there are sufficient records for each chemical, the function models the $\hat{\mu}$ (Eq. 5) and $\hat{\sigma}$ (Eq. 6) for each chemical, based of the $M_{i}$ and $S_{i}$ per species. We then calculate the $log(HC20_{EC10^{eq}})$ using weighted means for each chemical (Eq. 7) as well as define the value at the 0.2 quantile of the model results using the `qnorm()`-function. Additionally, by extracting $\hat{\mu}$ and $E_{i}$ from the model results, we apply Monte Carlo simulations to render 1E+5 samples at the 20% percentile of a normal distribution for of $\hat{\mu}$ and $\hat{\sigma}$ respectively. These samples are then used calculate a vector of 1E+5 point values of the 0.2 quantile, from which we select the 2.5 and the 97.5 quantiles to reveal the 95% uncertainty interval within the 0.2 quantile for each chemical. Then, to enable a comparison of uncertainties across multiple chemicals, the geometric standard deviation for each uncertainty distribution is calculated using the `EnvStats::GeoSD` function from the back-log-transformed 1E+5 values in the 0.2 quantile vector.      
 
+### Data availability in the HESTIA Ecotox Explorer: 
+The script detailed above can generate a summary of the model results, creates a plot of the dose-response curve for each chemical, histogram over the Monte Carlo run's data distribution, and a table containing the underlying dataset which is available for download.  
+
+### Software used
 OECD QSAR Toolbox v.4.5 was used for collecting ecotoxicological data and physicochemical data, VEGA QSAR software v.1.2.0 was used to generated QSAR estimates for toxicity.`r version$version.string` has been used for data collection, curation and visualization, text and data was published using Pandoc v.`r rmarkdown::pandoc_version()` and Shiny R package version 1.7.4.9002 was used to construct the interactive web-based uncertainty explorer [@shiny].  
 
 ```{r pkgs}
@@ -266,7 +270,7 @@ pkgtbl_for_suppmat <- flextable(pkgtbl)%>%
   flextable::fontsize(., size = 9, part = "all")
 ```
 
-### Results{-}  
+## Results{-}  
 The curated data set contain toxicological data with `r nrow(HESTIA_BASE_EnviroTox_FILL %>% filter(DB == "HESTIA"))` records across `r nrow(HESTIA_BASE_EnviroTox_FILL %>% distinct(Species))` species (Table \@ref(tab:Qdat-summary)), adapted for freshwater aquatic ecotoxicological potential (e.g. ecotoxicological effect factor) calculations at HC20EC10eq (hazard concentration where 20% effect is expected at the EC10eq concentration) for a set of `r nrow(HESTIA_BASE_EnviroTox_FILL %>% filter(DB == "HESTIA") %>% distinct(CAS.Number))` chemicals. An overview of the data set curation and records kept or removed throughout the operations is given in Figure \@ref(fig:fig1).  
 
 ```{r fig1, results='asis', fig.cap = "Overview of the data curation process from respective number of records per database, omitted records per curation step, and the counts of acute or chronic records per endpoint.", fig.height=0.1, fig.width=0.1}
@@ -388,6 +392,7 @@ For the final database, the HESTIA toxicological data set with EnviroTox unique 
 ```{r SummaryNls}
 # load the nls function
 #  source("code/least_squares_fit_model_code.R")
+# 
 #  # Running the operation with the HESTIA toxicity data set, generating a list object
 # system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "NO", MC_n = 1e+05, Plot_destination = "figures/SSD_plots"))
 # 
@@ -403,7 +408,7 @@ nls_output_df <- read.csv("results/nls_output_df.csv")
 ```
 
 
-When taking the weighted means approach and fit a nonlinear least-squares model to the database, `r nrow(nls_output_df %>% filter(status == "OK"))` chemicals have enough data to calculate $HC20_{weighted}$. Data availability is a major issue here, since only `r round((nrow(nls_output_df %>% filter(status == "OK"))/nrow(nls_output_df))*100, 1)`% of all chemicals have enough data to fit the nonlinear least squares model (Table \@ref(tab:Summary-nls-table)).  
+When taking the weighted means approach and fit a nonlinear least-squares model to the database, `r nrow(nls_output_df %>% filter(status == "Convergence"))` chemicals have enough data to calculate $HC20_{weighted}$. Data availability is a major issue here, since only `r round((nrow(nls_output_df %>% filter(status == "Convergence"))/nrow(nls_output_df))*100, 1)`% of all chemicals have enough data to fit the nonlinear least squares model (Table \@ref(tab:Summary-nls-table)).  
 
 ```{r Summary-nls-table}
 Summary_nls_table <- flextable(nls_output_df %>%
@@ -426,128 +431,39 @@ set_caption("Summary overview of the nonlinear least square model fit for the HE
     min_taxa_per_substance = "Minimum number of taxonomic groups per chemical",  
     max_taxa_per_substance = "Maximum number of taxonomic groups per chemical"
 )
-# write.csv(Summary_nls, "results/nls_output_summary.csv", row.names = F)
+
+
 ```
 
 
-To allow for comparative assessment of uncertainties at the $logHC20_{EC10eq}$ response level across the entire data set, we define uncertainty ratio ($U_r$) (or perhaps $\sigma_r$) given by 0.5 * 2.5 to 97.5 quantiles range divided by the central value ($logHC20_{EC10eq}$) as  
+To allow for comparative assessment of uncertainties at the $log(HC20_{EC10^{eq}})$ response level across the entire data set, we apply Monte Carlo simulations using the average and standard deviation results from the nls model 
 
-\begin{equation}
-U_r = \frac{0.5(Q97.5-Q2.5)}{logHC20_{EC10eq}}
-(\#eq:eq11)
-\end{equation}
-
-The 2.5% and 97.5% quantiles are unequally distanced from the central $logHC20_{EC10eq}$ value, which is why we generate an "artificial" distance between the central value and each quantile. The calculated $U_r$ tells us for the majority of data.  
+Vänta. Om vi först kör monte carlo för att uppskatta osäkerheterna i ett dataset, och sedan kör monte carlo... kan man inte bara köra monte carlo på icke-vägd data?
 
 ```{r}
 ## select only substances with enough data to fit a model to
 nls_output_df_OK <- nls_output_df %>% 
   filter(status == "Convergence")
 
-uncertainty_ratios <- nls_output_df_OK %>% 
-  select(CAS.Number, log_HC20EC10eq, Q2.5, Q97.5, Geo_St.Dev, n_recs, n_sp, n_tax.grp) #%>% 
-  # mutate(quantile_range = (Q97.5-Q2.5)/2, # <- average quantile range from the central value
-  #        uncertainty_ratio = as.numeric(abs(quantile_range)/abs(log_HC20EC10eq)))
+## Select only data with n_sp >5 & n_tax.grp >3
+required_data_nls <- nls_output_df_OK %>% 
+  filter(n_sp >= 5 & n_tax.grp >=3)
 
-# summary_uncertainty_ratios <- autofit(flextable(uncertainty_ratios %>% 
-#   filter(!is.na(uncertainty_ratio)) %>% 
-#   summarise_at(vars(uncertainty_ratio),
-#               list(min=min, 
-#                     Q1=~quantile(., probs = 0.25, na.rm = T, digits = 2),
-#                     median=median, 
-#                     Q3=~quantile(., probs = 0.75, na.rm = T, digits = 2),
-#                     max=max))))
-
-# summary_uncertainty_ratios %>% 
-#   set_caption("Uncertainty ratios distribution across the data set with minimum, 25%-quantile (Q1), median, 75%-quantile(Q3) and maximum") %>% 
-#   fontsize(., size = 9, part = "all")
-  
-
-### joining the uncertainty ratios with physchem data
-Uncert_analysis_df <- uncertainty_ratios %>% 
-  left_join(
-    x = ., 
-    y = FULL_PHYSCHEM %>% 
-      select(CAS.Number, MW.g.mol, pKaChemClass, Group, Substance_type), 
-    by = "CAS.Number"
-  )
-
-# Histogram detailing the distribution of relative uncertainty of substances at the HC20 response level
-histogram_uncertainty_ratio <- Uncert_analysis_df %>% 
-  ggplot(aes(uncertainty_ratio))+
-  geom_histogram(aes(), bins = 100)+
+n_rec_to_uncertainty <- nls_output_df_OK %>% 
+  ggplot(aes(x = n_recs, y = Geo_St.Dev)) +
+  geom_point(aes(), alpha = 0.5) +
+  geom_smooth(se = TRUE) + # metod:mgcv::gam() (Generalized additive models with integrated smoothness estimation) is used with formula = y ~ s(x, bs = "cs") with method = "REML".
+  #annotation_logticks() +
   scale_x_log10() +
-  xlab("Uncertainty ratio (Ur) presented at log10 scale")
-
-# trimmed_uncert <- Uncert_analysis_df %>% 
-#   arrange(desc(uncertainty_ratio)) %>% 
-#   slice(20:nrow(Uncert_analysis_df))
-# trimmed_uncert %>% 
-#   ggplot(aes(uncertainty_ratio))+
-#   geom_histogram(aes(), bins = 30)+
-#   #scale_x_log10() +
-#   xlab("Ur (NOT log10 scale)")
-
-# Histogram detailing the number of records for chemicals with a modeled HC20 response level
-histogram_n_recs <- nls_output_df_OK %>% 
-  ggplot(aes(n_recs))+
-  geom_histogram(aes()) +
-  scale_x_log10()
- 
-```
-
-
-**The approach to produce a ratio is flawed. When logHC20EC10eq value is close to 0 the low quantile range is still much bigger than the absolute value of logHC20EQ10eq and the ratio turns out huge.** How can we change this approach?  
-```{r}
-# Boxplot of relative uncertainty in the HC20 response level for substances groups
-Boxplot_uncertainty_per_group <- Uncert_analysis_df %>% 
-  ggplot(aes(x = Group, y = uncertainty_ratio)) +
-  geom_boxplot(aes(fill = Group)) +
-  scale_y_log10() +
-  coord_flip() +
-  theme(legend.position = "none")
-```
-
-When exploring the relationship between the number of records or the molecular weight of substances to the uncertainty ratio of chemicals we find, unsurprisingly, that the more data points each nonlinear least squares model are modeled after, the lower the uncertainty is for corresponding $log(HC20_{EC10^{eq}})$ point (Figure \@ref(fig:uncert)).  
-
-```{r uncert, fig.dim = c(12, 6), fig.cap = "Uncertainty analysis figures (TEST CAPTION)"}
-n_rect_to_uncertainty <- Uncert_analysis_df %>% 
-  ggplot(aes(x = n_recs, y = uncertainty_ratio)) +
-  geom_point(aes(color = Group), alpha = 0.5) +
-  geom_smooth(se = FALSE)+
-  annotation_logticks() +
-  scale_x_log10() +
-  scale_y_log10(breaks = 10^(-2:3), labels = scales::number_format(accuracy = 0.01)) +
+  #scale_y_log10(labels = scales::number_format(accuracy = 0.01)) +
   xlab("Number of records per chemical (log-scale)") +
-  ylab("Uncertainty ratio (log-scale)") +
+  ylab("Geometric standard deviation (log-scale)") +
   #labs(tag = "a)") +
   theme_bw() +
-  theme(legend.position = "none") #+ 
-  #ggtitle("Relationship between the number of records and \nuncertainty ratio for different groups of chemicals")
+  theme(legend.position = "none") + 
+  ggtitle("Relationship between the number of records and \ngeometric standard deviation per chemical")
 
-n_rect_to_uncertainty
-
-# # Uncertainty ratio variability as a result of molecular weight  
-# mol_w_to_uncertainty <- Uncert_analysis_df %>% 
-#   ggplot(aes(x = MW.g.mol, y = uncertainty_ratio)) +
-#   geom_point(aes(color = Group), alpha = 0.5) +
-#   #geom_smooth()+
-#   scale_x_log10() +
-#   scale_y_log10(labels = scales::number_format(accuracy = 1)) +
-#   annotation_logticks() +
-#   xlab("Molecular weight") +
-#   ylab(element_blank()) +
-#   labs(tag = "b)") +
-#   theme_bw() +
-#   theme(legend.position = "none") #+
-#   #ggtitle("Exploring the relationship between the molecular weight and \nuncertainty ratio for different groups of chemicals")
-# 
-# grid.arrange(n_rect_to_uncertainty, mol_w_to_uncertainty, ncol=2)
-
-# Lets run a linear model to test the relationship between n_recs and uncertainty ratio:
-# n_recs_x_uncertainty_lm <- lm(n_recs~uncertainty_ratio, Uncert_analysis_df, na.action = na.exclude)
-# summary(n_recs_x_uncertainty_lm)
-
+n_rec_to_uncertainty
 ```
 
 ### Comparison of ecotoxicological effects based on species sensitivity distributions (SSD) to the weighted means distribution{-}
@@ -557,7 +473,7 @@ By fitting a linear model to the two data sets with $log(HC20_{EC10^{eq}})$ valu
 # comparison - try to look into a lm() as a comparison. scatterplot/q-q plot and look for patterns if the two methods are comparable or how far off either method is from each other.
 SSD_weighted_means_comparison <- left_join(
   x = nls_output_df %>% 
-    filter(status == "OK") %>% 
+    filter(status == "Convergence") %>% 
     select(CAS.Number, log_HC20EC10eq, n_recs),
   y = HESTIA_HC20 %>% 
     select(CAS.Number, HC20EC10eq),
@@ -698,6 +614,9 @@ main_taxa_df <- Species_list %>%
   mutate(non_binom = case_when(!grepl("\\s", species) ~ species),
          species = case_when(!grepl("\\s", species) ~ as.character(NA), TRUE ~ species))
 
+sp_count_tbl <- HESTIA_BASE_EnviroTox_FILL %>% 
+  count(Species, sort = T)
+
 ```
  
 
@@ -708,19 +627,21 @@ Complementing toxicological testing of animals with *in silico* simulations to d
 
 Even more worrisome is that estimations of experimental, good and moderate quality are still not providing HC20-values within a reasonable error margin. When comparing QSAR HC20-values with HC20-values based on empirical data across `r nrow(QSAR_emp_abs_diff_df)` chemicals, the estimated HC20-values deviate substantially from the corresponding HC20-values derived from empirical data with errors up to `r formatC(QSAR_emp_abs_diff_df[1,7], format = "e", digits = 2)` $PAF\text{ } m^3/kg_{bioavailable}$ at the largest extreme, while the median difference is `r round(median_diff_value[1,1], 2)` $PAF\text{ } m^3/kg_{bioavailable}$. More toxicological effect data and data for additional chemicals are available (e.g in the REACH dossier) and gathering of data for *any other* chemicals using OECD QSAR Toolbox could be a straightforward task, with the here available R-scripts adapted for reading and wrangling data structured as OECD QSAR Toolbox-output.
 
-**Considerations of taxonomy:** Averaging across species can be problematic for records where taxonomic details are given at levels above species. $Eq$ 5 calculates the mean of all per-species EC10eq effect values ($\hat\mu$) and whether using the weighted means-method or the standard non-weighted method to calculate $log(HC20_{EC10^{eq}})$, records defined at a higher taxonomic rank than species will influence the calculation by representing an artificial species, for example *Daphnia sp.* will count as one species alongside *D. magna*. Such above-species-level taxonomic identifiers have been removed from this data set resulting in the exclusion of `r nrow(main_taxa_df %>% filter(!is.na(non_binom)))` names (not counting common names or erroneous names). This issue seem to be overlooked, as these taxonomic ids at higher level **are present in both @connors_2019 and @sala_2022**. Since data scarcity is an issue this poses an avenue for future analysis when testing how robust a methodology of averaging records across genus-level instead of species-level. Such an approach could produce more data-rich averaging calculations, but at the cost of fewer data points to construct an SSD-curve from. 
+**Considerations of taxonomy:** Averaging across species can be problematic for records where taxonomic details are given at levels above species. Eq. 5 calculates the mean of all per-species EC10eq effect values ($\hat\mu$) and whether using the weighted means-method or the standard non-weighted method to calculate $log(HC20_{EC10^{eq}})$, records defined at a higher taxonomic rank than species will influence the calculation by representing an artificial species, for example *Daphnia sp.* will count as one species alongside *D. magna*. Such above-species-level taxonomic identifiers have been removed from this data set resulting in the exclusion of `r nrow(main_taxa_df %>% filter(!is.na(non_binom)))` names (not counting common names or erroneous names). This issue seem to be overlooked, as these taxonomic ids at higher level **are present in both @connors_2019 and @sala_2022**. Since data scarcity is an issue this poses an avenue for future analysis when testing how robust a methodology of averaging records across genus-level instead of species-level. Such an approach could produce more data-rich averaging calculations, but at the cost of fewer data points to construct an SSD-curve from. 
 
 The discussion part on uncertainties in the data set.  
-SSD curves with uncertainty intervals at the $log(HC20_{EC10^{eq}})$ point can be created for about `r nrow(nls_output_df %>% filter(status== "OK"))` of the chemicals within this database, while $log(HC20_{EC10^{eq}})$ data for `r nrow(read.csv("results/HESTIA_HC20_dataset.csv") %>% filter(!is.na(HC20)))` chemicals have been calculated using the methodology of Owsianiak et al. [-@owsianiak_2022]. Within every species-specific data point that builds the SSD curve are uncertainties that have so far not been assessed. as a starting point, every toxicological effect value is generated from multiple data points and is presented as an average effect, at an endpoint, per unit of measurement. Throughout this study, each effect value has also been extrapolated from original endpoint to EC10eq using extrapolation factors that comes with CI/uncertainties as well and downstream calculations produce average species-specific averages with, at some points substantial ranges, more uncertainties.  
-One key difference between the methodology recommended by Owsianiak et al., -@Owsianiak2019, where $\hat\mu$ and $\hat\sigma$ are the parameters used to generate $log(HC20_{EC10^{eq}})$,
-and how the uncertainty analysis in the current article is performed is that we apply weighted means to species data when calculating chemical-specific $log(HC20_{EC10^{eq}})$. Data availability and spread affects M_{i} and S_{i}, which is subsequently fed into an nls model based on the cumulative distribution function \@ref(eq:eq10). This approach enables us to capture the variability in species-specific means.
+SSD curves with uncertainty intervals at the $log(HC20_{EC10^{eq}})$ point can be created for about `r nrow(nls_output_df %>% filter(status== "Convergence"))` of the chemicals within this database, while $log(HC20_{EC10^{eq}})$ data for `r nrow(read.csv("results/HESTIA_HC20_dataset.csv") %>% filter(!is.na(HC20)))` chemicals have been calculated using the methodology of Owsianiak et al. [-@owsianiak_2022]. Within every species-specific data point that builds the SSD curve are uncertainties that have so far not been assessed. as a starting point, every toxicological effect value is generated from multiple data points and is presented as an average effect, at an endpoint, per unit of measurement. Throughout this study, each effect value has also been extrapolated from original endpoint to EC10eq using extrapolation factors that comes with CI/uncertainties as well and downstream calculations produce average species-specific averages with, at some points substantial ranges, more uncertainties.  
+
+While the methodology recommended by Owsianiak et al., -@Owsianiak2019, where the arithmetic mean of vectors $M_{i}$ and $S_{i}$ respectively are used to calculate a $log(HC20_{EC10^{eq}})$-value, the present approach fits the cumulative normal distribution to the vector of $M_{i}$, allowing to account for the variance across all species data. This is crucial for a fair estimate of uncertainty of the $log(HC20_{EC10^{eq}})$-value, as data availability varies greatly across species, with few species being over represented in the dataset (e.g `r knitr::combine_words(sp_count_tbl[1:3,1])` representing `r round((sum(sp_count_tbl[1:3,2])/nrow(HESTIA_BASE_EnviroTox_FILL))*100, 2)` % of the dataset).  
+
+Few chemicals have a rich data from multiple tests per species.  
+
  - Compare to the methodology applied in [@aurisano_probabilistic_2023]  
- - Few chemicals have a rich data from multiple tests per species.  
  - We need more data - for characterization purposes toxicological testing needs to be performed across more species from a more diverse set of taxonomic groups. Especially since more data == higher accuracy of the predicted CRF value.  
  - We can compare the point data, the 
 
 **Conclusions**  
- - We have been able to analyze the uncertainties in the HC20 working point for a fair number of chemicals (`r nrow(nls_output_df %>% filter(status== "OK"))`), yet only fewer than 10% of the original data set with 16797 chemicals.    
+ - We have been able to calculate the uncertainties at the $log(HC20_{EC10^{eq}})$ point using Monte Carlo simulations for `r nrow(nls_output_df %>% filter(status== "Convergence"))` chemicals, yet only fewer than 10% of the original data set with 16797 chemicals.    
  - Produce a set of up-to-date characterization factors for use in HESTIA.earth.
 
 \newpage
