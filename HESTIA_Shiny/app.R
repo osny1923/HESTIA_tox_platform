@@ -305,7 +305,7 @@ server <- function(input, output, session) {
     return(outputDf)
   }, 
   options = list(
-    dom = 'frtip'
+    dom = 't'
     )
   )
   
@@ -316,7 +316,7 @@ server <- function(input, output, session) {
   },
   options = list(
     autoWidth = TRUE,
-    #dom = 't',
+    dom = 't',
     pageLength = 3000,
     columnDefs = list(
       list(

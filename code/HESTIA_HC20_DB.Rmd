@@ -226,6 +226,8 @@ HESTIA_HC20_DB_Control.Type_filter <- HESTIA_HC20_DB_qualifier_filter %>%
     !grepl("Multi-Laboratory Hazard Assessment of Contaminated Microplastic Particles by Means of Enhanced Fish Embryo Test with the Zebrafish", Title),
     # Study runs toxicological effect testing across a range of temperatures, leading to skewed data output.
     !grepl("Water Toxicology and Radioecology. Acute Toxicity of Heavy Metals to Aquatic Invertebrates at Different Temperatures", Title),
+    # Duplicate data exists from the same author, also recorded in "Little, L.W., J.C. Lamb III, M.A. Chillingworth, and W.B. Durkin, Acute Toxicity of Selected Commercial Dyes to the Fathead Minnow and Evaluation of Biological Treatment for Reduction of Toxicity"
+    !grepl("Acute Toxicity of 46 Selected Dyes to the Fathead Minnow, Pimephales promelas", Title),
     # The Japan MoE Ecotoxicological tests on chemical Hexabromobenzene, CASRN=87-82-1, is reported with data 6 orders of magnitude from all other data, and the specific test report is not to traceable.
     Database != "Aquatic Japan MoE" | CAS.Number != "87-82-1"
   )
@@ -489,7 +491,7 @@ This operation takes a couple of minutes.
 # load EC10eq converson function
 source("../code/EC10eq_conversion_functions.R")
 
-Q_dat <- HESTIA_HC20_DB_time.unit_filter %>% 
+system.time(Q_dat <- HESTIA_HC20_DB_time.unit_filter %>% 
   mutate(
     EC10eq = mapply(ec10eq_extrapolation_function, Value.mg_l, Endpoint, AcuteChronic, Taxonomy.Group, "extpl"),
     EC10eq_high = mapply(ec10eq_extrapolation_function, Value.mg_l, Endpoint, AcuteChronic, Taxonomy.Group, "high_CI"),
@@ -499,7 +501,7 @@ Q_dat <- HESTIA_HC20_DB_time.unit_filter %>%
          No.Extrapolations = as.numeric(case_when(Endpoint_conv == "EC10" ~ 0, TRUE ~ 1)),# Making sure to annotate whether an effect value is extrapolated or not for downstream applications.
     DB = "HESTIA",
     version = "HESTIA 1.3"
-    )  
+    )  )
 
 # write.csv(expf_df, "../data/excel_references/EC10_extrapolation_factor_summary_table.csv", row.names = F)
 
@@ -519,9 +521,9 @@ nodes = data.frame("name" = c(
    "1. Validated data", 
    "2. Data in range-filter", "3. Controls insufficient or unsatisfactory", "4. Non-Fresh Water data", "5. Effect criterions irrelevant", "6. Poor taxonomic descriptions",
    "7. Effect unit/value '0'or'NA'", "8. Duration 'NA' or <24h",
-   "EC50-data", "EC10-data", "NOEC-data",
-   "Acute EC10eq", "Chronic EC10eq"),
-   "Node_Group" = c("Toolbox", rep("DBs", 5), "Validated_data", rep("Filter1", 7),  rep("Endpoint", 3), rep("EC10eq",2))
+   "EC50-acute", "EC50-chronic", "EC10-acute", "EC10-chronic", "NOEC-acute", "NOEC-chronic",
+   "Chronic EC10eq"),
+   "Node_Group" = c("Toolbox", rep("DBs", 5), "Validated_data", rep("Filter1", 7),  rep(c("EndpointA", "EndpointC"), 3), rep("EC10eq",1))
                )
 
 links = as.data.frame(matrix(c(
@@ -541,35 +543,47 @@ links = as.data.frame(matrix(c(
     0,13,nrow(HESTIA_HC20_DB_val.unit_filter) - nrow(HESTIA_HC20_DB_time.unit_filter), # Incorrect time unit
     
     6,14,nrow(Q_dat %>% # How many EC50 do we have? 
-                    filter(Endpoint_conv == "EC50")),
+                    filter(Endpoint_conv == "EC50",
+                           AcuteChronic == "Acute")),
     6,15,nrow(Q_dat %>% # How many LOEC do we have? 
-                    filter(Endpoint_conv == "EC10")),
+                    filter(Endpoint_conv == "EC50",
+                           AcuteChronic == "Chronic")),
     6,16,nrow(Q_dat %>% # How many NOEC do we have? 
-                    filter(Endpoint_conv == "NOEC")),
-    
-    14,17,nrow(Q_dat %>% # How many Acute EC50 do we have? 
-                    filter(Endpoint_conv == "EC50",
-                           AcuteChronic == "Acute")),
-    14,18,nrow(Q_dat %>% # How many Chronic EC50 do we have? 
-                    filter(Endpoint_conv == "EC50",
-                           AcuteChronic == "Chronic")),
-    15,17,nrow(Q_dat %>% # How many Acute EC10 do we have? 
                     filter(Endpoint_conv == "EC10",
                            AcuteChronic == "Acute")),
-    15,18,nrow(Q_dat %>% # How many Chronic do we have? 
+    6,17,nrow(Q_dat %>% # How many EC50 do we have? 
                     filter(Endpoint_conv == "EC10",
                            AcuteChronic == "Chronic")),
-    16,17,nrow(Q_dat %>% # How many Acute NOEC do we have? 
+    6,18,nrow(Q_dat %>% # How many LOEC do we have? 
                     filter(Endpoint_conv == "NOEC",
                            AcuteChronic == "Acute")),
-    16,18,nrow(Q_dat %>% # How many Chronic NOEC do we have? 
+    6,19,nrow(Q_dat %>% # How many NOEC do we have? 
+                    filter(Endpoint_conv == "NOEC",
+                           AcuteChronic == "Chronic")),
+    
+    14,20,nrow(Q_dat %>% # How many Acute EC50 do we have? 
+                    filter(Endpoint_conv == "EC50",
+                           AcuteChronic == "Acute")),
+    15,20,nrow(Q_dat %>% # How many Chronic EC50 do we have? 
+                    filter(Endpoint_conv == "EC50",
+                           AcuteChronic == "Chronic")),
+    16,20,nrow(Q_dat %>% # How many Acute EC10 do we have? 
+                    filter(Endpoint_conv == "EC10",
+                           AcuteChronic == "Acute")),
+    17,20,nrow(Q_dat %>% # How many Chronic do we have? 
+                    filter(Endpoint_conv == "EC10",
+                           AcuteChronic == "Chronic")),
+    18,20,nrow(Q_dat %>% # How many Acute NOEC do we have? 
+                    filter(Endpoint_conv == "NOEC",
+                           AcuteChronic == "Acute")),
+    19,20,nrow(Q_dat %>% # How many Chronic NOEC do we have? 
                     filter(Endpoint_conv == "NOEC",
                            AcuteChronic == "Chronic"))
                                         ),
   byrow = TRUE, ncol = 3))
 
 names(links) = c("source", "target", "value")
-links$groups = c(rep("A", 5), "B", rep("C", 10), "A_EC10", "C_EC10","A_EC10", "C_EC10","A_EC10", "C_EC10")
+links$groups = c(rep("A", 5), "B", rep("C", 7), rep("D", 6), "A_EC10", "C_EC10","A_EC10", "C_EC10","A_EC10", "C_EC10")
 
 Wrangle_plot <- sankeyNetwork(Links = links, Nodes = nodes,
  Source = "source", Target = "target",
@@ -659,26 +673,6 @@ HESTIA_HC20_dataset <- HCx_calculator(HESTIA_BASE_EnviroTox_FILL, HCx = 20)
 write.csv(HESTIA_HC20_dataset, "../results/HESTIA_HC20_dataset.csv", row.names = F)
 ```
 
-## Summarizing uncertainty across the entire dataset
-To be used in the bootstrap-operation for uncertainty analysis by Patrik Henriksson
-```{r, include=FALSE, echo=FALSE}
-uncert_data <- HESTIA_BASE_EnviroTox_FILL %>%
-    group_by(CAS.Number) %>%
-    summarize(n = n(),
-              Q0.05 = quantile(EC10eq, probs = 0.05),
-              Q0.95 = quantile(EC10eq, probs = 0.95),
-              mean_EC10eq = mean(EC10eq),
-              median_EC10eq = median(EC10eq),
-              sd_EC10eq = sd(EC10eq),
-              CV_EC10eq = sd_EC10eq / mean_EC10eq) %>%
-    ungroup()
-
-
-write.csv(uncert_data, "../results/HESTIA_data_distribution_summary.csv", row.names = F)
-
-```
-
-
 ## Running the weighted uncertainty model
 ```{r}
 # Dataset to analyze is object `HESTIA_BASE_EnviroTox_FILL`
@@ -692,10 +686,10 @@ system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, P
 nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:16])) %>%
  mutate(across(c(2:15), ~ as.numeric(.x)),
         CAS.Number = as.factor(CAS.Number),
-        status = as.character(status)) %>% 
-  mutate(status = case_when(status == "warning: step factor reduced below 'minFactor'" ~ "Not enough data",
-                            status == "singular gradient matrix at initial parameter estimates" ~ "One species record",
-                            TRUE ~ status))
+        status = as.character(status)) #%>% 
+  # mutate(status = case_when(status == "warning: step factor reduced below 'minFactor'" ~ "Not enough data",
+  #                           status == "singular gradient matrix at initial parameter estimates" ~ "One species record",
+  #                           TRUE ~ status))
 
 write.csv(nls_output_df, "../results/nls_output_df.csv", row.names = F)
 write.csv(nls_output_df, "../HESTIA_Shiny/data/nls_output_df.csv", row.names = F)
@@ -806,7 +800,7 @@ This provides us with a broad data set that has EnviroTox as the bulk of data.
 A trade off that comes into play is the EnviroTox trimming of outliers: 
  "Outliers are defined as 3 orders of magnitude away from the species geometric mean effect value for species tested >=3 times for any given chemical–species pair; 4 orders of magnitude different from the trophic level geometric mean for a trophic group tested >=3 times for any given chemical; 3 orders of magnitude from the trophic level geometric mean for a rare species if a trophic group had >=30 individual entries for a given chemical."
 
-```{r}
+```{r, include=FALSE, echo=FALSE}
 HESTIA_top_Q_dat <- rbind(
   Q_dat %>% 
     # selecting all CAS from `Q_dat` that are NOT overlapping.
@@ -829,6 +823,25 @@ HESTIA_FILL_EnviroTox_BASE <- rbind(
   EnviroTox_toxDB_EC10eq %>% 
     select(common_name_elements), 
   HESTIA_top_Q_dat)
+
+```
+
+## Summarizing uncertainty across the entire dataset
+To be used in the bootstrap-operation for uncertainty analysis by Patrik Henriksson
+```{r, include=FALSE, echo=FALSE}
+# uncert_data <- HESTIA_BASE_EnviroTox_FILL %>%
+#     group_by(CAS.Number) %>%
+#     summarize(n = n(),
+#               Q0.05 = quantile(EC10eq, probs = 0.05),
+#               Q0.95 = quantile(EC10eq, probs = 0.95),
+#               mean_EC10eq = mean(EC10eq),
+#               median_EC10eq = median(EC10eq),
+#               sd_EC10eq = sd(EC10eq),
+#               CV_EC10eq = sd_EC10eq / mean_EC10eq) %>%
+#     ungroup()
+# 
+# 
+# write.csv(uncert_data, "../results/HESTIA_data_distribution_summary.csv", row.names = F)
 
 ```
 

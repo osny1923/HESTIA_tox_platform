@@ -141,23 +141,23 @@ VEGA_EC10_LQ <- VEGA_EC10 %>%
 # Perform Species averages across the High-quality QSAR Dataset
 VEGA_EC10_HQ <- VEGA_EC10 %>% 
   mutate(
-    Fish_Chronic_EC10eq_IRFMN_mgL = case_when(Fish_Acute_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ as.numeric(Fish_Chronic_EC10eq_IRFMN_mgL)),
-    Fish_Chronic_EC10eq_NIC_mgL = case_when(Fish_Acute_NIC_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_NIC_mgL),
-    Fish_Chronic_EC10eq_KNN_mgL = case_when(Fish_Acute_KNN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_KNN_mgL),
-    Fish_Chronic_EC10eq_IRFMN.Combase_mgL = case_when(Fish_Acute_IRFMN.Combase_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_IRFMN.Combase_mgL),
-    Fathead_Minnow_Chronic_EC10eq_EPA_mgL = case_when(Fathead_Minnow_Acute_EPA_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fathead_Minnow_Chronic_EC10eq_EPA_mgL),
-    Fathead_Minnow_Chronic_EC10eq_KNN.IRFMN_mgL = case_when(Fathead_Minnow_Acute_KNN.IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fathead_Minnow_Chronic_EC10eq_KNN.IRFMN_mgL),
-    D.magna_Chronic_EC10eq_IRFMN_mgL = case_when(D.magna_Acute_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN_mgL),
-    D.magna_Chronic_EC10eq_EPA_mgL = case_when(D.magna_Acute_EPA_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_EPA_mgL),
-    D.magna_Chronic_EC10eq_IRFMN.Combase_mgL = case_when(D.magna_Acute_IRFMN.Combase_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN.Combase_mgL),
-    Guppy_Chronic_EC10eq_KNN.IRFMN_mgL = case_when(Guppy_Acute_KNN.IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Guppy_Chronic_EC10eq_KNN.IRFMN_mgL),
-    Algae_Chronic_EC10eq_IRFMN_mgL = case_when(Algae_Acute_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_IRFMN_mgL),
-    Algae_Chronic_EC10eq_ProtoQSAR.Combase_mgL = case_when(Algae_Acute_ProtoQSAR.Combase_eval == "LOW" ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_ProtoQSAR.Combase_mgL),
-    Fish_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(Fish_Chronic_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_IRFMN_NOEC_mgL),
-    D.magna_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(D.magna_Chronic_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN_NOEC_mgL),
-    Algae_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(Algae_Chronic_IRFMN_eval == "LOW" ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_IRFMN_NOEC_mgL)
+    Fish_Chronic_EC10eq_IRFMN_mgL = case_when(Fish_Acute_IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ as.numeric(Fish_Chronic_EC10eq_IRFMN_mgL)),
+    Fish_Chronic_EC10eq_NIC_mgL = case_when(Fish_Acute_NIC_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_NIC_mgL),
+    Fish_Chronic_EC10eq_KNN_mgL = case_when(Fish_Acute_KNN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_KNN_mgL),
+    Fish_Chronic_EC10eq_IRFMN.Combase_mgL = case_when(Fish_Acute_IRFMN.Combase_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_IRFMN.Combase_mgL),
+    Fathead_Minnow_Chronic_EC10eq_EPA_mgL = case_when(Fathead_Minnow_Acute_EPA_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Fathead_Minnow_Chronic_EC10eq_EPA_mgL),
+    Fathead_Minnow_Chronic_EC10eq_KNN.IRFMN_mgL = case_when(Fathead_Minnow_Acute_KNN.IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Fathead_Minnow_Chronic_EC10eq_KNN.IRFMN_mgL),
+    D.magna_Chronic_EC10eq_IRFMN_mgL = case_when(D.magna_Acute_IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN_mgL),
+    D.magna_Chronic_EC10eq_EPA_mgL = case_when(D.magna_Acute_EPA_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_EPA_mgL),
+    D.magna_Chronic_EC10eq_IRFMN.Combase_mgL = case_when(D.magna_Acute_IRFMN.Combase_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN.Combase_mgL),
+    Guppy_Chronic_EC10eq_KNN.IRFMN_mgL = case_when(Guppy_Acute_KNN.IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Guppy_Chronic_EC10eq_KNN.IRFMN_mgL),
+    Algae_Chronic_EC10eq_IRFMN_mgL = case_when(Algae_Acute_IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_IRFMN_mgL),
+    Algae_Chronic_EC10eq_ProtoQSAR.Combase_mgL = case_when(Algae_Acute_ProtoQSAR.Combase_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_ProtoQSAR.Combase_mgL),
+    Fish_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(Fish_Chronic_IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Fish_Chronic_EC10eq_IRFMN_NOEC_mgL),
+    D.magna_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(D.magna_Chronic_IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ D.magna_Chronic_EC10eq_IRFMN_NOEC_mgL),
+    Algae_Chronic_EC10eq_IRFMN_NOEC_mgL = case_when(Algae_Chronic_IRFMN_eval %in% c("LOW", "EXPERIMENTAL") ~ as.numeric(NA), TRUE ~ Algae_Chronic_EC10eq_IRFMN_NOEC_mgL)
     ) %>% 
-  mutate(across(ends_with("_eval"), ~ gsub("LOW", as.numeric(NA), .))) %>% 
+  mutate(across(ends_with("_eval"), ~ gsub("LOW|EXPERIMENTAL", as.numeric(NA), .))) %>% 
   mutate(
     Fish_avg = rowMeans(.[,grepl(paste(c(" Fish_Chronic_EC10eq", "Fathead_Minnow_Chronic_EC10eq", "Guppy_Chronic"), collapse = "|"), colnames(VEGA_EC10))], na.rm = T),
     Daphnia_avg = rowMeans(.[,grepl("D.magna_Chronic_EC10eq", colnames(VEGA_EC10))], na.rm = T),

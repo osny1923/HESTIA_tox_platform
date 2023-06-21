@@ -1,0 +1,113 @@
+---
+title: "Uncertainty_exploration"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = F, warning = F, echo = F)
+
+  library(rmarkdown)
+  library(flextable)
+  library(bookdown)
+  library(tidyverse)
+  library(kableExtra)
+  library(gridExtra)
+  
+```
+
+Check for normal distibution in the raw data
+```{r}
+HESTIA_BASE_EnviroTox_FILL <-  read.csv("../results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv")
+
+norm_distr <- HESTIA_BASE_EnviroTox_FILL %>% 
+  left_join(
+    x = ., 
+    #Adding the chemical use information
+    y = read.csv("../results/HESTIA_chem_list_slim.csv") %>% 
+      select(CAS.Number, Group),
+    by = "CAS.Number") %>% 
+  distinct() %>% 
+  group_by(CAS.Number) %>% 
+  mutate(n = n()) %>% 
+  ungroup() %>% 
+  filter(n >= 3) %>% 
+  group_by(CAS.Number) %>% 
+  filter(sd(EC10eq) != 0) %>% 
+  mutate(
+    shapiro_p_value = shapiro.test(log10(EC10eq))$p.value,
+    ) %>% 
+  distinct(CAS.Number, .keep_all = T) %>% 
+  mutate(norm_dist = case_when(shapiro_p_value >= 0.05 ~ 0, TRUE ~ 1)) %>% 
+  ungroup() %>% 
+  select(CAS.Number, Group, n, shapiro_p_value, norm_dist)
+
+# Are pesticide data following normal distribution? Since these substances are designed to be more toxic to certain species... we need to group data per taxonomic group as well... quite some analysis to be done if i want to continue with this approach. 
+norm_distr %>%
+  count(Group, norm_dist)
+
+glm_model <- glm(norm_dist ~ n, data = norm_distr, family = binomial)
+summary(glm_model)
+plot(norm_dist ~ n, norm_distr, log = "x")
+
+aov_model <- aov(shapiro_p_value ~ n, data = norm_distr)
+
+summary(aov_model)
+plot(shapiro_p_value ~ n, norm_distr, log = "xy")
+```
+
+
+I want to investigate the uncertainty of Pesticides in particular, to see how the probability distributions and geometric standard deviation is distributed.
+
+I need the chemical use-definitions and the probability data from the NLS-results data
+
+```{r}
+
+nls_output_df <- read.csv("../results/nls_output_df.csv")
+use_category <- read.csv("../results/HESTIA_chem_list_slim.csv")
+
+prob_df <- left_join(
+  x = nls_output_df %>% 
+    filter(status == "Convergence"), 
+  y = use_category %>% 
+    select(CAS.Number, PesticideAI_name, Group, Substance_type), 
+  by = "CAS.Number") %>% 
+  mutate(sufficient_recs = case_when(
+    n_sp < 5 & n_tax.grp <3 ~ "insufficient", 
+      TRUE ~ "sufficient"))
+
+```
+
+Statistics:
+is the GeoSD larger for chemicals with few records (insufficient - n_sp < 5 & n_tax.grp <3) than those with sufficient records?
+Probably, yes. why is this interesting?
+```{r}
+mean(prob_df[prob_df$sufficient_recs == "insufficient", "Geo_St.Dev"])
+mean(prob_df[prob_df$sufficient_recs == "sufficient", "Geo_St.Dev"])
+
+
+```
+
+
+```{r}
+
+n_rec_to_uncertainty <- prob_df %>% 
+  #filter(Group == "Pesticide") %>% 
+  ggplot(aes(x = n_recs, y = Geo_St.Dev)) +
+  geom_point(aes(color = Group), alpha = 0.5) +
+  geom_smooth(se = FALSE) + # metod:mgcv::gam() (Generalized additive models with integrated smoothness estimation) is used with formula = y ~ s(x, bs = "cs") with method = "REML".
+  #annotation_logticks() +
+  scale_x_log10() +
+  #scale_y_log10(labels = scales::number_format(accuracy = 0.01)) +
+  xlab("Number of records per chemical (log-scale)") +
+  ylab("Geometric standard deviation (log-scale)") +
+  #labs(tag = "a)") +
+  #theme_bw() +
+  #theme(legend.position = "none") + 
+  ggtitle("Relationship between the number of records and \ngeometric standard deviation per chemical")
+
+n_rec_to_uncertainty
+```
+

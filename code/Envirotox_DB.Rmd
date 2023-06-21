@@ -168,8 +168,15 @@ EnviroTox_toxDB_EC10eq <- EnviroTox_toxDB %>%
     Endpoint_conv, Time.Hours, Source, version, DB, Medium, Taxonomy.Group, 
     EC10eq, No.Extrapolations, EC10eq_Chronic, EC10eq_Acute, Database
   )  %>% 
-  filter(Source != "Ecotoxicol. Environ. Saf.8(2): 101-105")
+  # Dataset contains many identical rows across ALL data. These duplicate records are removed:
+  distinct() %>% 
+  filter(
+    Source != "Ecotoxicol. Environ. Saf.8(2): 101-105", 
+    # Duplicate data from the same author, also recorded in "Little, L.W., J.C. Lamb III, M.A. Chillingworth, and W.B. Durkin, Acute Toxicity of Selected Commercial Dyes to the Fathead Minnow and Evaluation of Biological Treatment for Reduction of Toxicity"
+    grepl("Acute Toxicity of 46 Selected Dyes to the Fathead Minnow, Pimephales promelas, Dyes and the Environment - Reports on Selected Dyes and Their Effects", Source)
+         )
 
 write.csv(EnviroTox_toxDB_EC10eq, "../data/RAW_DB/EnviroTox_toxDB_EC10eq.csv", row.names = F)
 
 ```
+
