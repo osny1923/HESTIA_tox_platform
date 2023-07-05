@@ -1,9 +1,9 @@
 library(tidyverse)
 library(webchem)
-# Purpose: collect correct SMILES configurations for as many CAS.Numbers as possible in the Hestia inventory: PesticideAI.csv 
+# Purpose: collect correct SMILES configurations for as many CAS.Numbers as possible in the pesticideAI.csv Hestia inventory:
 
-# Read the HESTIA list of chemials and fetch chemical information on these from PubChem
-  # Pubchem is selected since the queries are faster and have much other relevant information if the PubChemId is matched.
+# Read the HESTIA list of chemials and fetch chemical identification-information on these from PubChem
+  # Pubchem is selected since the queries are fast and have much other relevant information if a PubChemId is matched.
 # Importing the HESTIA db and create a list of the CAS.numbers
 CAS.list_HESTIA <- read.csv("data/excel_references/pesticideAI.csv", header = T, sep = ",") %>% 
   separate(term.id, c("cas.termstz","CAS.id"), sep = "CAS-", remove = FALSE) %>% 
@@ -123,7 +123,7 @@ missing_3911_PC_ID_CAS_query_w_names_updated <- missing_3911_PC_ID_CAS_query_w_n
          PesticideAI_name = tolower(PesticideAI_name),
          MATCH = case_when(PesticideAI_name == Title ~ "MATCH", TRUE ~ as.character(NA)))
 
-# Creating a df with the true matches! No double matches! Great!
+# Creating a df with the true matches, no double matches.
 missing_3911_PC_ID_CAS_query_w_names_matched <- missing_3911_PC_ID_CAS_query_w_names_updated %>% 
   filter(MATCH == "MATCH")
 
@@ -143,6 +143,7 @@ Filling_final_SMILES <- rbind(missing_3911_PC_ID_CAS_query_w_names_matched,
 last_remaining_CAS_SMILES <- missing_386_fewer_CAS %>% 
   filter(!CAS.number %in% Filling_final_SMILES$CAS.number)
 
+### Using the pc_sect() function 
 # cid_to_cas_query <- pc_sect(last_remaining_CAS_SMILES$cid, section = "CAS", domain = "compound", verbose = T)
 # write.csv(cid_to_cas_query, "data/excel_references/cid_to_cas_query.csv", row.names = F)
 # Reading the data from pc_sect query
@@ -191,9 +192,8 @@ last_missing_SMILES <- read.csv("data/excel_references/CAS_SMILES_filler.csv") %
 
 # Third lookup
 ######################
-# These are Stupid interdependencies!!
+
 # Last effort to secure the missing 2259 CAS numbers without SMILES
-# Dependency on `Pesticide_annotations.Rmd`
 CAS_CID_Second_Step <- left_join(x = CAS_CID_list_first, y = last_missing_SMILES, by = "CAS.Number") %>% 
   mutate(PC_title = coalesce(PC_title.x, PC_title.y),
          CID = coalesce(CID.x, CID.y),
@@ -204,7 +204,7 @@ CAS_CID_Second_Step <- left_join(x = CAS_CID_list_first, y = last_missing_SMILES
 
 
 ####################
-
+# select chemicals missing SMILES-configuration 
 Missing_list_1 <- CAS_CID_Second_Step %>% 
   filter(is.na(CanonicalSMILES))
 
@@ -256,12 +256,14 @@ Missing_list_5_refined_NOT_MATCH <- Missing_list_5_NOT_MATCH %>%
   mutate(MATCh = "NOT_MATCH") %>% 
   rename(CanonicalSMILES = CanonicalSMILES.x)
 
-# These are Stupid interdependencies!!
 Missing_list_5_MATCH <- read.csv("data/excel_references/Missing_list_5_MATCH.csv")
 
+# compiling all identified SMILES-configurations for the third operation 
 last_missing_SMILES <- rbind(last_missing_SMILES, Missing_list_5_MATCH)
-nrow(last_missing_SMILES)
 
+# nrow(last_missing_SMILES)
+
+# compiling a list of SMILES-information for the operations.
 CAS_CID_list_final <- left_join(x = CAS_CID_list_first, y = last_missing_SMILES, by = "CAS.Number") %>% 
   mutate(PC_title = coalesce(PC_title.x, PC_title.y),
          CID = coalesce(CID.x, CID.y),

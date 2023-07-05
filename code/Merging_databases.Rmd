@@ -1,0 +1,200 @@
+---
+title: "Merging_Databases"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+  library(tidyverse)
+  library(readxl)
+```
+
+# Merging HESTIA Tox DB with the EnviroTox DB.
+The code below adds Envirotox "on top of" the HESTIA DB, Prioritizing HESTIA CASRN and Species, while adding CAS and species' unique to the Envirotox DB.
+
+```{r Envirotox}
+# Specifying which columns i want to keep in the main dataset
+common_name_elements <- c(
+  "CAS.Number", "DB", "version", "Database", "Species", "Genus", 
+  "Taxonomy.Group", "Medium", "Effect", "Value.mg_l", "AcuteChronic", 
+  "Endpoint", "Endpoint_conv", "Time.Hours",
+  "EC10eq", "EC10eq_Chronic", "EC10eq_Acute", "No.Extrapolations", "Source")
+
+# Reading in the Envirotox database (created in ../code/Envirotox_DB.Rmd)
+EnviroTox_toxDB_EC10eq <- read.csv("../data/RAW_DB/EnviroTox_toxDB_EC10eq.csv")
+
+# filtering out the unique Envirotox records
+EnviroTox_Q_dat <- rbind(
+  EnviroTox_toxDB_EC10eq %>% 
+    # Removing all species taxonomic annotations given as "Genus sp."
+    filter(!grepl("sp\\.", Species)) %>% 
+    # selecting all CAS from `EnviroTox_substDB` that are NOT overlapping.
+    filter(!CAS.Number %in% Q_dat$CAS.Number),
+  EnviroTox_toxDB_EC10eq %>% 
+    # Removing all species taxonomic annotations given as "Genus sp."
+    filter(!grepl("sp\\.", Species)) %>% 
+    # selecting all species that are unique to the `Q_dat` DB- 
+    filter(CAS.Number %in% Q_dat$CAS.Number,
+         !Species %in% Q_dat$Species))  %>% 
+  select(common_name_elements)
+
+# Adjusting the content of the HESTIA database
+HESTIA_BASE_dat <- "../results/HESTIA_EC10eq_DB.csv" %>% 
+  rename(Medium = Media.type) %>% 
+  unite(Source, c("Title", "Author", "Year", "Reference.source", "URL", "DOI"), sep = ";", na.rm = TRUE) %>% 
+  select(common_name_elements)
+
+# This is the raw database with HESTIA as BASE and Envirotox as "filler"
+HESTIA_BASE_EnviroTox_FILL <- rbind(HESTIA_BASE_dat, EnviroTox_Q_dat)
+
+write.csv(HESTIA_BASE_EnviroTox_FILL, "../results/FINAL_HESTIA_BASE_EnviroTox_FILL.csv", row.names = F)
+write.csv(HESTIA_BASE_EnviroTox_FILL, "../HESTIA_Shiny/data/FINAL_HESTIA_BASE_EnviroTox_FILL.csv", row.names = F)
+```
+
+## Merging all physchem & subst. use-type annotations 
+```{r MergingPhyschem}
+FULL_PHYSCHEM <- rbind(
+  NEW_PHYSCHEM,
+  read.csv("../data/excel_references/Envirotox_physchem.csv") %>% 
+    # Duplicates in the two datasets are present. Filtering out these here.
+    filter(!CAS.Number %in% NEW_PHYSCHEM$CAS.Number)) %>% 
+  mutate(KdegA = case_when(KdegA == 0 ~ as.numeric(NA), TRUE ~ KdegA))
+```
+
+
+## Calculating HC50_EC50 for the HESTIA_envirotox Database for backwards compatibility with previous LCA-tox versions.
+Dependency on `../code/HC50_calculation_function.R`-file with the defined function. 
+This operation requires Physchem/subst.use-group data to be joined with the toxicological data.
+```{r HC50EC50}
+source("../code/HC50_calculation_function.R")
+
+# Attaching the Physchem data to HESTIA dataset and outputting a df with HC50 data
+HESTIA_HC50_calc <- HC50_calc_function(HESTIA_BASE_EnviroTox_FILL %>% left_join(x = ., y = FULL_PHYSCHEM, by = "CAS.Number"))
+```
+
+## HC20EC10eq calculations for HESTIA_BASE_EnviroTox_FILL
+
+```{r HC20Calculations}
+source("../code/HC20_calculation_function.R")
+
+HESTIA_HC20_dataset <- HCx_calculator(HESTIA_BASE_EnviroTox_FILL, HCx = 20)
+
+write.csv(HESTIA_HC20_dataset, "../results/HESTIA_HC20_dataset.csv", row.names = F)
+```
+
+## Running the weighted uncertainty model
+```{r}
+# Dataset to analyze is object `HESTIA_BASE_EnviroTox_FILL`
+
+# load the nls function
+ source("../code/least_squares_fit_model_code.R")
+ # Running the operation with the HESTIA toxicity data set, generating a list object
+system.time(nls_output <- nls_across_all(dataset = HESTIA_BASE_EnviroTox_FILL, Plot_output = "NO", MC_n = 1e+05, Plot_destination = "../figures/SSD_plots"))
+
+#Transform into a dataframe - removing the list of lists containing full nls-output
+nls_output_df <- as.data.frame(do.call(cbind, nls_output[1:16])) %>%
+ mutate(across(c(2:15), ~ as.numeric(.x)),
+        CAS.Number = as.factor(CAS.Number),
+        status = as.character(status)) #%>% 
+  # mutate(status = case_when(status == "warning: step factor reduced below 'minFactor'" ~ "Not enough data",
+  #                           status == "singular gradient matrix at initial parameter estimates" ~ "One species record",
+  #                           TRUE ~ status))
+
+write.csv(nls_output_df, "../results/nls_output_df.csv", row.names = F)
+write.csv(nls_output_df, "../HESTIA_Shiny/data/nls_output_df.csv", row.names = F)
+
+nls_output_df <- read.csv("../results/nls_output_df.csv")
+
+```
+
+
+## Merging Physchem & Tox data
+```{r FinalDataset}
+HESTIA_envirotox_cfs <- left_join(
+    x = FULL_PHYSCHEM, 
+    y = HESTIA_HC20_dataset,
+    by = "CAS.Number") %>% 
+# Selection for the SHINY-app
+  select(c(
+    CAS.Number, PesticideAI_name, CanonicalSMILES, 
+    MW.g.mol, pKaChemClass, pKa.gain, pKa.loss, Kow_L.L, Koc_L.kg_MCI,
+    kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L,
+    KdegA, KdegW, KdegSd, KdegSl, HC20, BAF_L.Kg, 
+    mean_EC10eq, Sd_EC10eq, HC20EC10eq,
+    Molecular.formula, Predefined.substance.type, Substance_type, Group, Subgroup, Heavy.Metals, Halogenated, definition, n_data_recs, n_species, sum_extrapolations, n_Taxonomy.Group 
+    )
+  ) %>% 
+  mutate(across(contains("Kdeg"), ~ formatC(., format = "e")))
+
+write.csv(HESTIA_envirotox_cfs, "../HESTIA_Shiny/data/HESTIA_envirotox_cfs.csv", row.names = F)
+
+```
+
+I'm reading in the USEtox Organics database names, to be able to export an identical list of data for easier USEtox input
+```{r}
+
+USEtox_input_names <- names(read_xlsx("../data/Impact assessment/USEtox_substance_data_organics.xlsx", sheet = "Substance data", skip = 1))
+```
+
+Creating an output file with the USEtox 2.1 database input structure 
+Defining a data frame shaped like the USEtox-input database
+
+```{r}
+USEtox_input <- data.frame(
+ ...1 = seq(1, nrow(HESTIA_envirotox_cfs), 1),
+CASRN = HESTIA_envirotox_cfs$CAS.Number,
+Name = HESTIA_envirotox_cfs$PesticideAI_name,
+PesticideTargetClass = HESTIA_envirotox_cfs$Group,
+PesticideChemClass = HESTIA_envirotox_cfs$Substance_type,
+MW = as.numeric(HESTIA_envirotox_cfs$MW.g.mol),
+pKaChemClass = HESTIA_envirotox_cfs$pKaChemClass,
+pKa.gain = HESTIA_envirotox_cfs$pKa.gain,
+pKa.loss = HESTIA_envirotox_cfs$pKa.loss,
+KOW = HESTIA_envirotox_cfs$Kow_L.L,
+Koc = HESTIA_envirotox_cfs$Koc_L.kg_MCI,
+KH25C = HESTIA_envirotox_cfs$kH25C_Pa.m3.mol,
+Pvap25 = HESTIA_envirotox_cfs$Vapor.Pressure_Pa,
+Sol25 = HESTIA_envirotox_cfs$Sol_mg.L,
+Kdoc = rep(NA, nrow(HESTIA_envirotox_cfs)),
+KpSS = rep(NA, nrow(HESTIA_envirotox_cfs)),
+KpSd = rep(NA, nrow(HESTIA_envirotox_cfs)),
+KpSl = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdegA = HESTIA_envirotox_cfs$KdegA,
+kdegW = HESTIA_envirotox_cfs$KdegW,
+kdegSd = HESTIA_envirotox_cfs$KdegSd,
+kdegSl = HESTIA_envirotox_cfs$KdegSl,
+kdissP = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdisswheat = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdissrice = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdisstomato = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdissapple = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdisslettuce = rep(NA, nrow(HESTIA_envirotox_cfs)),
+kdisspotato = rep(NA, nrow(HESTIA_envirotox_cfs)),
+avlogEC20 = HESTIA_envirotox_cfs$HC20,
+ED50inhnoncanc = rep(NA, nrow(HESTIA_envirotox_cfs)),
+ED50ingnoncanc = rep(NA, nrow(HESTIA_envirotox_cfs)),
+ED50inhcanc = rep(NA, nrow(HESTIA_envirotox_cfs)),
+ED50ingcanc = rep(NA, nrow(HESTIA_envirotox_cfs)),
+BAFroot = rep(NA, nrow(HESTIA_envirotox_cfs)),
+BAFleaf = rep(NA, nrow(HESTIA_envirotox_cfs)),
+BTFmeat = rep(NA, nrow(HESTIA_envirotox_cfs)),
+BTFmilk = rep(NA, nrow(HESTIA_envirotox_cfs)),
+BAFfish = HESTIA_envirotox_cfs$BAF_L.Kg,
+Flagged.Interim.Characterization.factor = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...41 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...42 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...43 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...44 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...45 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...46 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...47 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...48 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+...49 = rep(NA, nrow(HESTIA_envirotox_cfs)),
+USEtox.internal.identification.number = rep(NA, nrow(HESTIA_envirotox_cfs))
+)
+
+write.csv(USEtox_input, "../results/HESTIA_HC20_dataset_USEtox_format.csv", row.names = F)
+
+```

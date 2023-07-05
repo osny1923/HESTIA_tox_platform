@@ -1,5 +1,5 @@
 ---
-title: "Toxicological database construction and uncertainty analysis of toxicological effect data used in life cycle assessment"
+title: "Data collection and uncertainty analysis of toxicological effect data used in life cycle assessment"
 author: "Oskar Nyberg"
 date: "`r Sys.Date()`"
 output:
@@ -19,8 +19,8 @@ knitr::opts_chunk$set(message = F, warning = F, echo = F)
   #install.packages("flextable")    
   #install.packages("ggforce")
   library(rmarkdown)
-  library(flextable)
   library(bookdown)
+  library(flextable)
   library(tidyverse)
   library(webchem)
   library(taxize)
@@ -94,7 +94,7 @@ To assess ecotoxicological impacts throughout the value chain of a product, ecot
 
 HESTIA is a free open-access platform that provides a data repository for life cycle inventory data using a harmonized schema and glossary of terms, and calculations tools for various emissions and impact assessments. The ambition of HESTIA is to make environmental benchmarks of agrifood commodities more accessible and transparent, by providing a free harmonized framework. Given that the agrifood sector is a major user of potentially toxic chemicals, mainly in terms of pesticides and therapeutants, we deem it important to provide a complete and verifiable set of ecotoxicity potentials as possible.
 
-The evaluation of toxicological impacts in LCA is limited by the number of chemical compounds characterized by impact assessment methodologies. The characterization factor is the value used to translate the amounts of chemicals used to its potential toxicity impact. There are several different impact assessment methodologies to derive these characterization factors, including USES-LCA v1&2 [@huijbregts2000; @vanZelm2009], IMPACT 2002 [@pennington2005], and UNEP-SETAC’s USEtox [@Fantke_2017], but ultimately they all rely on fundamental data on toxicity and physicochemical properties. Among these impact assessment methodologies, the USEtox model is most widely used at present, and also the one promoted by the European Platform on Life Cycle Assessment (ILCD, 2010). The USEtox model is currently on version 2.1, and readily presents 2499 freshwater ecotoxicological characterization factors for different chemicals, derived from physicochemical properties and empirical data at the 50% (EC50) endpoint, presented as the 50th percentile response level on the species-sensitivity distribution (SSD) model curve, denominated the HC50 value [@Fantke_2017]. For chemicals not readily characterized, the USEtox model also allows users to derive their own characterization factors through an Excel spreadsheet, but this is, in turn, dependent on access to physicochemical and toxicological properties for each chemical. 
+The evaluation of toxicological impacts in LCA is limited by the number of chemical compounds characterized by impact assessment methodologies. The characterization factor is the value used to translate the amounts of chemicals used to its potential toxicity impact. There are several different impact assessment methodologies to derive these characterization factors, including USES-LCA v1&2 [@huijbregts2000; @vanZelm2009], IMPACT 2002 [@pennington2005], and UNEP-SETAC’s USEtox [@Fantke_2017], but ultimately they all rely on fundamental data on toxicity and physicochemical properties. Among these impact assessment methodologies, the USEtox model is most widely used at present, and also the one promoted by the European Platform on Life Cycle Assessment (ILCD, 2010). The USEtox model is currently on version 2.1, and readily presents 2499 freshwater ecotoxicological characterization factors for organic chemicals, derived from physicochemical properties and empirical toxicological effect data at the 50% effect level(EC50) endpoint, presented as the 50th percentile response level on the species-sensitivity distribution (SSD) model curve, denominated the HC50 value [@Fantke_2017]. For chemicals not readily characterized, the USEtox model also allows users to derive their own characterization factors through an Excel spreadsheet, but this is, in turn, dependent on access to physicochemical and toxicological properties for each chemical. 
 
 Based on a series of recent expert workshops, updated recommendations on which toxicological input data should form the SSD slopes for characterization of substances has been published (Owsianiak et al., -@owsianiak2019). The new recommendations include using effect data at concentrations within a range similar to ambient environmental concentrations to construct SSD models which translates into usage of the endpoints no observed effect concentration (NOEC), lowest observed effect concentration (LOEC), or effect concentrations at 0, 10 and 50% response level (EC0, EC10 & EC50) endpoints when constructing SSD curves. This necessitates harmonization of data given as different endpoints into one coherent effect equivalent, recommended as effect concentration at the 10% response level equivalent (EC10eq; Aurisano et al., -@aurisano_2019). Additionally, recommendations set the working point for toxicological effect factor at the 20th percentile response level using EC10eq data under the assumption that ecotoxicological data is log-normally distributed resulting in effect data being log(10)-transformed, hence this point is called $log(HC20_{EC10^{eq}})$. From this point value, it is easy to calculate the concentration-response slope factor at the 20% response level ($CRF_{HC20}$) which is multiplied by a severity factor to derive the effect factor (EF) which, in turn, is multiplied with environmental fate, and ecosystem exposure products to produce characterization factors for chemicals emitted to the environment through a products' life cycle (Owsianiak et al., [-@owsianiak_2022]). 
 
@@ -161,6 +161,7 @@ EC10_flex_table <- flextable(EC10_extrapolation_table)
 
 EC10_flex_table %>% 
   set_caption("Conversion factors applied for respective endpoints for conversion into 'EC10eq', modified from Aurisano et al., 2019") %>% 
+  set_table_properties(layout = "autofit") %>% 
   fontsize(., size = 9, part = "all") %>%
   flextable::set_header_labels(
     q = "Assigned endpoint", 
@@ -257,7 +258,7 @@ The USEtox 2.1 manual requires data from three taxonomic groups to be present fo
 The script detailed above can generate a summary of the model results, creates a plot of the dose-response curve for each chemical, histogram over the Monte Carlo run's data distribution, and a table containing the underlying dataset which is available for download.  
 
 ### Software used
-OECD QSAR Toolbox v.4.5 was used for collecting ecotoxicological data and physicochemical data, VEGA QSAR software v.1.2.0 was used to generated QSAR estimates for toxicity.`r version$version.string` has been used for data collection, curation and visualization, text and data was published using Pandoc v.`r rmarkdown::pandoc_version()` and Shiny R package version 1.7.4.9002 was used to construct the interactive web-based uncertainty explorer [@shiny].  
+OECD QSAR Toolbox v.4.5 was used for collecting ecotoxicological data and physicochemical data, VEGA QSAR software v.1.2.0 was used to generated QSAR estimates for toxicity.`r version$version.string` has been used for data collection, curation and visualization, text and data was published using Pandoc v. `r rmarkdown::pandoc_version()` and Shiny R package version 1.7.4.9002 was used to construct the interactive web-based uncertainty explorer [@shiny].  
 
 ```{r pkgs}
 pkgs <- sessioninfo::package_info(pkgs = "attached", dependencies = FALSE)
@@ -267,6 +268,7 @@ pkgtbl <- tibble(
   source = gsub("@", "\\\\@", pkgs$source)
 )
 pkgtbl_for_suppmat <- flextable(pkgtbl)%>% 
+  set_table_properties(layout = "autofit") %>% 
   flextable::fontsize(., size = 9, part = "all")
 ```
 
@@ -302,6 +304,7 @@ flx_tbl <- flextable(HESTIA_BASE_EnviroTox_FILL %>%
 flx_tbl %>%  
   set_caption("Number of records found in the HESTIA Environmental Toxicology data set by taxonomic group and endpoint") %>% 
   flextable::fontsize(., size = 9, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
   flextable::set_header_labels(
     Taxonomy.Group = "Taxonomy group", 
     EC10_Chronic = "EC10 chronic",  
@@ -332,7 +335,8 @@ Envirotox_summary_table <- flextable(HESTIA_BASE_EnviroTox_FILL %>%
 
 Envirotox_summary_table %>% 
   set_caption("Number of records from EnviroTox data set joined to HESTIA by taxonomic group and endpoint") %>% 
-  fontsize(., size = 10, part = "all")%>% 
+  fontsize(., size = 10, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
   flextable::set_header_labels(
     Taxonomy.Group = "Taxonomy group", 
     EC10_Chronic = "EC10 chronic",  
@@ -371,7 +375,8 @@ The HESTIA database construction was able to gather physicochemical properties r
 Group_table <- autofit(flextable(DB_overview))
 Group_table %>% 
   set_caption("Number of toxicological use annotations identified for chemicals") %>% 
-  fontsize(., size = 9, part = "all")%>% 
+  fontsize(., size = 9, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
   flextable::set_header_labels(
     Group = "Substance use category", 
     n_records = "Number of records", 
@@ -408,6 +413,7 @@ Summary_nls_table <- flextable(nls_output_df %>%
 Summary_nls_table %>% 
 set_caption("Summary overview of the nonlinear least square model fit for the HESTIA ecotoxicological database") %>% 
   fontsize(., size = 9, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
   flextable::set_header_labels(
     status = "Output status", 
     n_records = "Number of records",  
@@ -444,7 +450,7 @@ top_GeoStDev <- prob_df %>%
 The geometric standard deviation for the probability distribution at the $log(HC20_{EC10^{eq}})$-point are decreasing as the number of effect data increases (Figure \@ref(fig:GeoStDev)). The highest geometric standard deviation belong to chemicals classified as pesticides (Figure \@ref(fig:GeoStDev)*a*) with a range up to `r top_GeoStDev[1,top_GeoStDev$GeoStDev]`, with other groups of chemicals having far narrower probability distributions. Interestingly, at around 30-50 records per chemical, the geometric standard deviation appear to be the highest for most groups of chemicals.
 *The geometric standard deviation of the `r nrow(top_GeoStDev %>% filter(Group == "Pesticide"))` of the top 50 chemicals with highest geometric standard deviation of the probability distribution at the $log(HC20_{EC10^{eq}})$-point belongs to pesticides.*  
 
-```{r GeoStDev, fig.dim = c(13, 15), fig.cap = "Geometric standard deviation of probability distribution ranges based on Monte Carlo simulations per number of effect data records per chemical.  Curve fitted using loess smoothing. Geo.StDev = Geometric standard deviation."}
+```{r GeoStDev, fig.dim = c(12, 9), fig.cap = "Geometric standard deviation of probability distribution ranges based on Monte Carlo simulations per number of effect data records per chemical.  Curve fitted using loess smoothing. Geo.StDev = Geometric standard deviation."}
 novaluron_plot <- HESTIA_BASE_EnviroTox_FILL %>% 
   filter(CAS.Number == "116714-46-6") %>% 
   ggplot(aes(x = Species, y = EC10eq, fill = Taxonomy.Group))+
@@ -460,27 +466,34 @@ Pyroxsulam_plot <- HESTIA_BASE_EnviroTox_FILL %>%
   ggtitle("Herbicide: Pyroxsulam", subtitle = "Effect data distribution")
 
 plot_group_uncertainty <- function (grp, df, Tag){
+  plot_state <- {{grp}} == "Pesticide"
+  max_row <- which.max(df$Geo_St.Dev)
+  sec_max_row <- which(df$Geo_St.Dev == df$Geo_St.Dev[order(df$Geo_St.Dev, decreasing = TRUE)][2])
   plot <- df[df$Group == paste({{grp}}),] %>% 
-  #filter(Group == paste({{grp}})) %>% 
+    arrange(Geo_St.Dev) %>% 
   ggplot(aes(x = n_recs, y = Geo_St.Dev)) +
   geom_point(aes(), fill = "black", stroke = 1, alpha = 0.7) +
-  geom_smooth(se = FALSE) + # metod:mgcv::gam() (Generalized additive models with integrated smoothness estimation) is used with formula = y ~ s(x, bs = "cs") with method = "REML".
-  #annotation_logticks() +
+  geom_smooth(method = "loess", se = FALSE) + # metod:mgcv::gam() (Generalized additive models with integrated smoothness estimation) is used with formula = y ~ s(x, bs = "cs") with method = "REML".
+  {if(plot_state)geom_text(aes(x = df[max_row, 12]*1.8, y = df[max_row, 13], label = df[max_row, 17]), family = "serif")} +
+  {if(plot_state)geom_text(aes(x = df[sec_max_row, 12]*2, y = df[sec_max_row, 13], label = df[sec_max_row, 17]), family = "serif")} +
+    #annotation_logticks() +
+ # geom_text(aes(x = df[1, 10], y = df[1, 13], label = "bajskorv"), vjust = 1, hjust = -0.5) +
   scale_x_log10() +
   #scale_y_discrete(breaks = c(1,5))+
   #scale_y_log10(labels = scales::number_format(accuracy = 0.01)) +
   xlab("Number of records per chemical (log-scale)") +
   ylab("Geo.StDev") +
   labs(tag = paste(Tag)) +
-  #theme_bw() +
-  theme(legend.position = "none", 
-        panel.grid.major = element_blank(), 
+  theme_bw() +
+  theme(legend.position = "none",
+        text = element_text(color = "black", family = "serif"),
+        panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
-        panel.background = element_blank(), 
-        axis.line = element_line(colour = "black")) + 
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black")) +
   ggtitle(paste("Group:", grp, sep = " "))
 return(plot)
-}
+} 
 
 plot_pest <- plot_group_uncertainty("Pesticide", prob_df, "a)")
 plot_antibiotic <- plot_group_uncertainty("Antibiotic", prob_df, "b)")
@@ -520,8 +533,12 @@ SSD_compare <- SSD_weighted_means_comparison %>%
   geom_text(aes(x = -2, y = 3), label = paste("R^2 =", round(SSD_lm_r.square, 4))) +
   scale_colour_gradient(low = "grey", high = "black") +
   labs(color = "(log10)n records", tag = "a)") +
-  theme(legend.position = "top", panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-          panel.background = element_blank(), axis.line = element_line(colour = "black"))
+  theme(legend.position = "top",
+        text = element_text(color = "black", family = "serif"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"))
 
 # These differences follow normal distribution to a fair extent.
 SSD_hist <- SSD_weighted_means_comparison %>% 
@@ -530,8 +547,11 @@ SSD_hist <- SSD_weighted_means_comparison %>%
   scale_x_log10() +
   xlab("Absolute difference between unweighted\n and weighted logHC20EC10eq values (x = log10 scale)") +
   labs(tag = "b)") +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-          panel.background = element_blank(), axis.line = element_line(colour = "black"))
+  theme(text = element_text(color = "black", family = "serif"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"))
 
 grid.arrange(SSD_compare, SSD_hist, ncol=2)
 ```
@@ -607,8 +627,11 @@ QSAR_plot_HQ <- QSAR_emp_abs_diff_df %>%
     #scale_y_log10() +
     #scale_x_log10() +
     geom_ellipse(aes(x0 = -4.8, y0 = -0.8, a = 2, b = 0.5, angle = pi / 6), color = "red", fill = NA, show.legend = FALSE) +
-    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-          panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+    theme(panel.grid.major = element_blank(),
+          text = element_text(color = "black", family = "serif"), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(), 
+          axis.line = element_line(colour = "black")) +
     xlab("logHC20EC10eq-values based on empirical records") +
     ylab("logHC20EC10eq-values based on estimated QSAR data") +
     labs(tag = "a)") +
@@ -621,8 +644,11 @@ hist_abs_diff <- QSAR_emp_abs_diff_df %>%
   geom_histogram() +
   xlab("QSAR estimated to empirical data ratio") +
   labs(tag = "b)") +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-          panel.background = element_blank(), axis.line = element_line(colour = "black"))
+  theme(panel.grid.major = element_blank(),
+        text = element_text(color = "black", family = "serif"), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"))
   
 
 grid.arrange(QSAR_plot_HQ, hist_abs_diff, ncol=2)
@@ -654,12 +680,17 @@ By gathering physicochemical and ecotoxicological effect data for a set of `r nr
 *Uncertainties:*  
 The present database contains data at both acute and chronic effect data from EC50, EC10 and NOEC endpoints. With regression coefficients available from Aurisano et al. [-@aurisano_2019], we deemed it fruitful to include acute effect data, albeit large confidence interval ranges for some of these coefficients (regression coefficient 7.44 for Acute EC50 to Chronic EC10eq for fish, with a 95% confidence interval 2.92-18.95). The probability distributions within each data point will have marginal influence on the final $log(HC20_{EC10^{eq}})$-value considering the ranges of effect across all species per chemical (REF???-have not checked for this). @aurisano_probabilistic_2023 quantify the uncertainty "POD/RDs: human impacts" for 10145 chemicals by calculating the squared geometric standard deviation of interstudy variability and intrastudy variability prior to fitting a lognormal distribution of data and bootstrapping, to generate comparable uncertainty distributions across the entire dataset.  
 The present approach fits the cumulative normal distribution to the vector of $\hat\mu$, allowing to account for the variance across all species data, while the methodology recommended by Owsianiak et al., [-@owsianiak2019] use the arithmetic mean of vectors $M_{i}$ and $S_{i}$ respectively are used to calculate a $log(HC20_{EC10^{eq}})$-value. The current approach is crucial for a fair estimate of probability distributions at the $log(HC20_{EC10^{eq}})$-value, as data availability varies greatly across species, with few species being over represented in the dataset (e.g *`r knitr::combine_words(sp_count_tbl[1:3,1])`* corresponding to `r round((sum(sp_count_tbl[1:3,2])/nrow(HESTIA_BASE_EnviroTox_FILL))*100, 0)` % of the dataset).  
-A well known problem for probabilistic assessments of uncertainty in pesticide ecotoxicity is the variation of sensitivity between species to pesticides [@warren2010application], it is in the nature of these types of substances. So we might assume that pesticides will have large uncertainties, which is indeed the case for the insecticide "Novaluron" and herbicide "Pyroxsulam" where the geometric standard deviation is extreme (5.1 and 4.8 respectively) (figure \@ref(fig:GeoStDev)). This brings up the issue of how to properly assess pesticides:  
+A problem for probabilistic uncertainty assessment of pesticides, due to the specific mode of action, are the large range of effect between target and non-target organisms [@warren2010application]. So with a distribution of effect data at two extremes, we can assume that pesticides will have large uncertainties in the calculated effect factor, which, indeed, is the case for the insecticide "Novaluron" and herbicide "Pyroxsulam", where the geometric standard deviation is very high (5.1 and 4.8 respectively) (figure \@ref(fig:GeoStDev)). This brings up the issue of how to represent pesticide ecotoxicity in LCIA modelling, should results be weighted towards the lowest quantile, or include regression coefficients for pesticide class chemicals?  
+ - Should i continue on this thought? 
 *(cite @fantke_2018: "The choice of a lower percentile than the median will also reduce the discrepancy with contemporary approaches in chemical risk assessment that ask for the use of several SSD models in the case of chemicals with a specific mode of action (most pesticides). There are numerically large differences at the level of the median value (HC50EC50), but expectedly lower numerical consequences in the tails between the nonsplit and split SSD approaches (e.g., Zajdlik et al. 2009).")*  
+**NEED TO INCLUDE REFERENCES TO van Zelm et al., 2007 & 2009!!**
+ - These are very old, and use an multi-substance (ms)PAF to calculate effect factors, compartmentalizing effects from chemicals with different Toxic modes of Action.  
+ - van Zelm et al., (2007) points out that >4 species should be used to calculate effect factors ($HC50_{EC50}$)  
+We also use regression coefficients to include acute data, converted into EC10eq from Aurisano et al. [-@aurisano_2019]. An investigation might be needed for the feasibility/uncertainty and we DEFINITELY need to motivate and explain that this is happening!
 
 *Quantitative structure-activity relationships:*  
 Complementing toxicological testing of animals with *in silico* simulations to derive quantitative structure-activity relationship estimates for chemical toxicity is a desirable approach for improving our understanding of the full range of impacts caused by anthropogenic activities. This as toxicological tests of chemicals are time consuming and expensive, while new chemicals are constantly introduced. Moreover, ethical aspects of exposing animals to potentially harmful chemicals also need to be considered. These QSAR models, however, are only as good as the training data and results from the current work show that when applying fifteen different QSAR models to the HESTIA inventory chemicals, many are too dissimilar to the models' training data sets and either fail to generate estimations or are deemed as low quality estimations. 
-
+ - "Models are outside of their applicability domain :)"  
 Even more worrisome is that estimations of experimental, good and moderate quality are still not providing HC20-values within a reasonable error margin. When comparing QSAR HC20-values with HC20-values based on empirical data across `r nrow(QSAR_emp_abs_diff_df)` chemicals, the estimated HC20-values deviate substantially from the corresponding HC20-values derived from empirical data with errors up to `r formatC(QSAR_emp_abs_diff_df[1,7], format = "e", digits = 2)` $PAF\text{ } m^3/kg_{bioavailable}$ at the largest extreme, while the median difference is `r round(median_diff_value[1,1], 2)` $PAF\text{ } m^3/kg_{bioavailable}$.  data and data for additional chemicals are available (e.g in the REACH dossier) and gathering of data for *any other* chemicals using OECD QSAR Toolbox could be a straightforward task, with the here available R-scripts adapted for reading and wrangling data structured as OECD QSAR Toolbox-output.
 
 *Considerations of taxonomy:*  

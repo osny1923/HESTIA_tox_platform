@@ -40,9 +40,31 @@ HESTIA_HC20_DB_raw <- rbind(
   filter(Endpoint %in% endpoints_to_incl)%>% 
   distinct() # Instantly removing duplicated rows
 
+filtered_counts <- HESTIA_HC20_DB_raw %>% 
+  count(Database, Endpoint)
+
+# Counting all of the raw data records
+raw_OECD_data_counts <- rbind(
+  read.csv("data/OECD_2023-03-28/QSAR_Aquatic_ALL_TOX_2023-03-28_with_metadata[1-4k].csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE) %>% 
+    select(Database),
+  read.csv("data/OECD_2023-03-28/QSAR_Aquatic_ALL_TOX_2023-03-28_with_metadata[4k-8k].csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE) %>% 
+    select(Database),
+  read.csv("data/OECD_2023-03-28/QSAR_Aquatic_ALL_TOX_2023-03-28_with_metadata[8k-12k].csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE) %>% 
+    select(Database),
+  read.csv("data/OECD_2023-03-28/QSAR_Aquatic_ALL_TOX_2023-03-28_with_metadata[12k-16k].csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE) %>% 
+    select(Database),
+  read.csv("data/OECD_2023-03-28/QSAR_Aquatic_ALL_TOX_2023-03-28_with_metadata[16k-end].csv",header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE) %>% 
+    select(Database)
+) %>% 
+  count(Database)
 #######
 #OUTPUT
 #######
+# The RAW dataset counts, exported as a .csv file to speed up knitting of supplementary materials.
+write.csv(raw_OECD_data_counts, "data/RAW_DB/raw_OECD_data_counts.csv", row.names = FALSE)
+
+# The filtered dataset database counts, exported as a .csv file to speed up knitting of supplementary materials.
+write.csv(filtered_counts, "data/RAW_DB/filter_OECD_data_counts.csv", row.names = FALSE)
 
 # The main dataset, NAs removed and ready to be dealt with.
 write.csv(HESTIA_HC20_DB_raw, "data/RAW_DB/HESTIA_DB_pre_filtered.csv", row.names = FALSE)

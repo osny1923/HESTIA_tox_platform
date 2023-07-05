@@ -1,0 +1,261 @@
+---
+title: "Supplementary information"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+toc: TRUE
+output:
+  bookdown::word_document2:
+    number_sections: no
+    toc: true
+    toc_depth: 2
+  bookdown::html_document2:
+    number_sections: no
+    includes:
+      in_header: my_styles.css
+always_allow_html: yes
+bibliography: references.bib
+---
+
+\newpage
+
+Oskar Nyberg$^{\dagger}$  
+  
+  
+${\dagger}$ Corresponding author: [oskar.nyberg@su.se](mailto:oskar.nyberg@su.se)
+
+```{r setup, echo = FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE, tab.cap.pre = "Table S")
+library(rmarkdown)
+library(bookdown)
+library(dplyr)
+library(knitr)
+library(stringr)
+library(flextable)
+```
+
+The following document provides detailed descriptions to the construction of the HESTIA Ecotoxicity database constructions. Data is attached as a Microsoft Excel file and R code is available at https://github.com/osny1923/HESTIA_tox_platform.
+
+\newpage
+# 1. Pre-processing of the chemical inventory
+
+## 1.1 The HESTIA chemical inventory  
+```{r, echo = F}
+pesticideAI <- read.csv("data/excel_references/pesticideAI.csv")[, c(1,3:9)]
+names_pesticideAI <- names(pesticideAI)
+n_synonyms <- pesticideAI %>% 
+mutate(c_synonym = rowSums(across(term.synonyms, \(x) str_count(x, ",")))) %>% 
+  arrange(-c_synonym) %>% 
+  slice(1)
+
+n_subclass <- pesticideAI %>%
+  filter(term.subClassOf.0.id != "-") %>% 
+  distinct(term.subClassOf.0.id) %>% 
+  mutate(term.subClassOf.0.id = gsub("CompoundsUnspecified", "", term.subClassOf.0.id))
+
+```
+
+**The HESTIA project is cool, but needs a description here**  
+... and this is where we extract the chemical inventory as the file `data/excel_references/pesticideAI.csv`, containing the following information for `r nrow(pesticideAI)` substances: `r knitr::combine_words(names_pesticideAI)`.  
+
+ - "term.id" contains a string "CAS-xxxx-xx-x", where "x" corresponds to numerials in a Chemical abstract services registry number (CASRN).
+ - "term.name" contains a string with a name identifier of the chemical.
+ - "term.units"  contains the inventory unit string "kg active ingredient".
+ - "term.synonyms" contains 0 to `r n_synonyms$c_synonym + 1` other possible name identifiers for each chemical.
+ - "term.subClassOf.0.id" contains pesticide-type specific information for `r nrow(pesticideAI %>% filter(term.subClassOf.0.id != "-"))` chemicals with `r nrow(n_subclass)` levels (`r knitr::combine_words(n_subclass %>% pull(term.subClassOf.0.id))`).
+ - "term.casNumber" contains the CASRN identifier.
+ - "term.pubchem"  contains a webpage reference to the chemical-specific PubChem database page.
+ - "term.chemidplus" contains a webpage reference to the chemical-specific ChemIdPlus database page.
+ 
+```{r, echo=FALSE}
+cas_smiles <- read.csv("data/excel_references/CAS_CID_list_final.csv")
+```
+
+## 1.2 CASRN to SMILES identification
+The file `pesticideAI.csv` is read into R and because of cases where Excel tends to reformat certain CASRNs into dates, the column "term.id" is used to derive CASRN. This is performed by separating the column from "CAS-" and only keep the corresponding CASRN numerical identification, calling this column "CAS.number". 
+Next, we use the NCBI PubChem project to match CASRN and substance names to SMILES configuration with the intermediate step of acquiring PubChem substance IDs using the R package [Webchem](https://docs.ropensci.org/webchem/) [@Webchem_2020]. The script is documented in the file "code/Translating_CAS_to_SMILES_via_PubChem.R".  
+First query to the PubChem (PC) project is performed to match chemical name ("term.name"-column) to PC substance IDs using the `get_cid()`-function. This matched `r 16797-3911` names to PC-IDs which are used to collect information on SMILES-configuration. 
+For the remaining 3911 chemicals, a second query is performed, here using the "CAS.number" as "from = 'xref/RN' inside the `get_cid()`-function, making sure to enable all possible matches. In finding matches, it is realized that chemical naming is different between the pesticideAI.CSV and the PC repository i.e., spelling of "sulfate" in pesticideAI.csv vs. "sulphate" in the PC repository. After substitution of "sulf -> "sulph" and name-matching between the returned query, remaining unidentified chemicals are queried using the CASRN for PC IDs using the `pc_sect`-function. 
+`r 3911-2259` chemicals obtained a matching SMILES-configuration.  
+For the remaining 2259 chemicals, multiple PC ID matches from the CASRN-query is returned from the `pc_prop()`-function, and an iterative process of identifying the correct chemical per multi-match is undertaken, querying the SMILES-configuration for all possible PC IDs using `pc_sect()`, then selecting correct CASRN-matches.
+The final result of CASRN-SMILES configuration matching is compiled to the file "data/excel_references/CAS_CID_list_final.csv" as a complete list of 16797 chemicals, with `r nrow(cas_smiles %>% filter(!is.na(CanonicalSMILES)))` identified SMILES-configurations. A .txt-file ("data/excel_references/CAS_CID_list_final.txt") with 16797 rows containing only CASRN and SMILES-configuration is also created to be used for importing data into the OECD QSAR Toolbox   
+Lastly, the output is also exported as five .txt-files with maximum 4000 rows of CAS-SMILES matches to be used in the downstream data queries from OECD QSAR Toolbox. Due to memory issues with the VEGA QSAR-software and when compiling ecotoxicological data in OECD QSAR Toolbos, a query of maximum 4000 chemicals per turn will be used. These files are all exported as "data/excel_references/cas_smiles_list['x'k-'x'k].txt" - where x represents the row number in "data/excel_references/CAS_CID_list_final.txt".
+
+# 2. Querying OECD QSAR Toolbox
+The OECD QSAR Toolbox v4.5 SP1 2022 software [@dimitrov2016qsar] is used to gather physicochemical data and ecotoxicological records for the chemicals listed in the "data/excel_references/CAS_CID_list_final.csv"-file. As input, the file "data/excel_references/CAS_CID_list_final.txt" is read and `r nrow(cas_smiles %>% filter(!is.na(CanonicalSMILES)))` with matching CASRN-SMILES-configurations are imported by reading the .txt-file as list object, selecting "NO" when asked to "search the database for empty SMILES with defined CAS numbers". 9 "problematic chemicals" were identified at rows 1696, 1724, 1937, 2334, 2406, 2877, 4252, 6961, and 6502, and 16788 chemical structures are imported.
+
+## 2.1 Physicochemical data gathering
+The following 2D parameters are selected for estimations using OECD QSAR Toolbox: 
+```{r, echo=FALSE}
+RAW_Physchem_names <- names(read.csv("data/QSAR_Toolbox_physchem_data_2023-03-24_RAW.csv", header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE)[, 9:31] %>% 
+        select(-starts_with("FM"))) 
+
+RAW_Physchem_names <- gsub("\\.|\\.\\."," ", RAW_Physchem_names) 
+RAW_Physchem_names <- sort(RAW_Physchem_names)
+```
+`r knitr::combine_words(RAW_Physchem_names)` which are required by USEtox v2.1 for characerizations of chemicals. "Exp"-implying data comes from experimental sources, others are estimated using *in silico* methods, explained below. 
+
+### 2.1.1 Molecular weight (MolW)
+Molecular weight are calculated using OASIS software (Laboratory of Mathematical Chemistry (LMC), Bourgas, Bulgaria, https://oasis-lmc.org/). MolW is reported as Dalton (Da) but "converted" to g $mol^{-1}$ as a 1:1 ratio.
+
+### 2.1.2 Acid and base dissociation values (pKa)
+Acid and base dissociation values (pKa) are calculated using the OASIS regression model (Laboratory of Mathematical Chemistry (LMC), Bourgas, Bulgaria, https://oasis-lmc.org/), where pKa gain is defined from the “Basic pKa”, pKa loss is defined from the Acidic pKa, and the pKa chemical class parameter can be defined as “Acidic” if cells are populated for pKa loss, “Basic” if cells are populated for pKa gain, “Amphoteric” if both cells are populated and “Neutral” if both cells are blank. 
+For multi constituent substances, the pKa chemical class was left as “undefined”.
+
+### 2.1.3 Octanol-water partitioning coefficient (Kow)
+Octanol-water partitioning coefficient KOW was estimated using the EPIsuite LOGKOW fragment constant methodology.
+
+### 2.1.4 Organic carbon-water partitioning coefficient (Koc)
+Organic carbon-water partitioning coefficient is estimated in EPIsuite using the MCI regression models, similar to in USEtox’s methodology, applying the same cut-off values for suitability. Koc is then calculated for substances classed as neutral, acids and amphoteric substances when pKa.loss ranges 0-12 and logKOW ranges -2.18 - 8.5, and bases and amphoteric substances when pKa.gain is above 2 and logKOW ranges -1.66 - 7.03. 
+
+### 2.1.5 Vapor pressure ($P_{vap}25$)
+Vapor pressure at 25 degrees Celcius ($P_{vap}25$) is estimated using available EPIsuite models and is automatically selected as by the software as the most fitting model from either the Antoine Method, the Modified Grain Method, or the Mackay Method. $P_{vap}25$ is reported as mm Hg, but converted into Pascal (Pa) using a multiplier of 133,322.
+
+### 2.1.6 Water solubility (Sol25)
+Where experimental water solubility (Sol25, mg L-1) data is available, these data are prioritized over solubility data estimated using EPIsuite WSKOW models which use KOW as base for regression models to generate estimates.
+
+### 2.1.7 Ultimate biodegradation models for water, soil and sediment (Kdeg)
+Ultimate biodegradation models (BIOWIN 3) are used to estimate biodegradation rates in water, soil and sediment. Estimated BIOWIN 3 output values are transformed into degradation rates (1/s) by first using the conversion specified in Table S\@ref(tab:kdeg-table) available in the EPIsuite manual (P2 Framework Manual 2012 EPA-748-B12-001), transforming values into delimited time formats and thereafter converting these into biodegradation rates as 1/s according to the USEtox manual [@Fantke_2017].
+
+```{r kdeg-table, echo=FALSE}
+
+kdeg_table <- flextable::flextable(data.frame(a = c(">4.75 - 5",">4.25 - 4.75", ">3.75 - 4.25",">3.25 - 3.75", ">2.75 - 3.25", ">2.25 - 2.75", ">1.75 - 2.25", "<1.75"),
+                         b = c("Hours", "Hours - days", "Days", "Days - weeks", "Weeks", "Weeks - months", "Months", "Longer “recalcitrant”"),
+                         c = as.numeric(c(0.17, 1.25, 2.33, 8.67, 15, 37.5, 60, 180)),
+                         d = as.character(c(4.70E-05, 6.40E-06, 3.40E-06, 9.30E-07, 5.30E-07, 2.10E-07, 1.30E-07, 4.50E-08))
+                         ))
+kdeg_table %>%
+  set_caption("Conversions of BIOWIN 3 output into biodegradation rates according to methodology in Fantke et al. (2017)") %>%
+  set_table_properties(layout = "autofit") %>%
+  flextable::fontsize(., size = 9, part = "all") %>%
+  flextable::set_header_labels(
+    a = "BIOWIN 3 Result",
+    b = "Time Required for Biodegradation",
+    c = "Assigned Half-Life (days)",
+    d = "Biodegradation rate (1/s)")
+
+# Kdeg Air equation if the bookdown-syntax should start to act up.
+# \begin{equation}
+# Kdeg_{A} = {OH rate constant \times [OH]}\fract {2} 
+# (\#eq:eqS1)
+# \end{equation}
+```
+
+### 2.1.8 Ultimate biodegradation models for air (Kdeg)
+Degradation rates for air was calculated according to the OH rate constant method specified in the USEtox manual with the formula 
+
+$$
+Kdeg_{A} = \frac{\text{OH rate constant} \times [OH]}{2}
+$$
+Where [OH] represents the default OH concentration in air: 1.5 × 106 molecules (radicals)/cm3 per 12h of daylight [@Fantke_2017]. The overall OH rate constant was calculated from EPIsuites AOP v1.92: HYDROXYL RADICALS (25 deg C) model.
+
+### 2.1.9 Bio accumulation factor, fish ($BAF_{fish}$)
+Data on bio accumulation factors in fish, Log BAF (upper trophic) values estimated using Arnot-Gobas BCF & BAF Methods in EPIsuite were used. Log-transformed log10 $BAF_{fish}$ gives the correct unit for USEtox calculations, L $kg^{-1}$.
+
+### 2.1.10 Henry’s Law coefficient (KH25C)
+Henry’s Law coefficient (KH25C) could be sourced from experimental data (LogP) or calculated by  
+
+$$
+KH25C = \frac{P_{vap}25*MolW}{Sol25}
+$$
+according to Fantke et al., [-@Fantke_2017], where Pvap25 (Pa) is the vapor pressure at 25℃, MolW is the molecular weight (g mol-1), and Sol25 is the water solubility at 25℃ (mg L-1).
+
+## 2.2 Ecotoxicological effect data
+The five files containing CASRN-SMILES matches ("data/excel_references/cas_smiles_list['x'k-'x'k].txt") are each imported separately into OECD QSAR Toolbox.
+Then all available aquatic ecotoxicity data is gathered from available sources using the "data"->"gather" function, selecting "all endpoints". The data are subsequently exported as five separate documents (to avoid system freezing due to insufficient memory).
+
+```{r read-raw, echo=FALSE}
+raw_OECD_data_counts <- read.csv("data/RAW_DB/raw_OECD_data_counts.csv")
+raw_OECD_data_counts[6,1] <- "NA"
+raw_2 <-  flextable::flextable(rbind(raw_OECD_data_counts, 
+                data.frame(Database = "Number of records", 
+                           n = sum(raw_OECD_data_counts$n))))
+```
+
+The data output from OECD QSAR Toolbox contains `r sum(raw_OECD_data_counts$n)` records from data sources reported in Table S\@ref(tab:raw-tox-recs)
+
+```{r raw-tox-recs, echo=FALSE}
+raw_2 %>%  
+  set_caption("Numer of records returned from OECD QSAR Toolbox. Database = NA imply that no matches were found for a chemical.") %>% 
+  set_table_properties(layout = "autofit") %>% 
+  flextable::fontsize(., size = 9, part = "all") %>% 
+  flextable::set_header_labels(Database = "Database",
+                               n = "Total number of records")
+```
+
+When imported into R, the script "code/raw_data_read_and_wrangle.R" merge all files, selects relevant columns, relevant endpoints, removes empty rows and duplicate records across all columns. The data are subsequently exported to a ".csv" file: "data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv",  which is used as the starting point for the ecotoxicological database. The number of records in this dataset is reported in Table S\@ref(tab:inputdb)
+
+```{r inputdb, echo=FALSE}
+#| tab.cap.pre: Table S
+filtered_counts <- read.csv("data/RAW_DB/filter_OECD_data_counts.csv")
+filt_2 <- flextable::flextable(rbind(
+  filtered_counts,
+  data.frame(Database = "Number of records", 
+             Endpoint = NA,
+             n = sum(filtered_counts$n))))
+
+filt_2 %>%  
+  set_caption("Numer of records per database and endpoint used as input to the ecotoxicological database construction after selecting relevant end points, removing chemicals without data and duplicates.") %>% 
+  set_table_properties(layout = "autofit") %>% 
+  flextable::fontsize(., size = 9, part = "all") %>% 
+  flextable::set_header_labels(Database = "Database",
+                               Endpoint = "Endpoint",
+                               n = "Total number of records")
+```
+
+# 3. Data processing
+
+## 3.1 Chemical use categorization
+To categorize chemicals according to how they are used or applied, several processing steps are applied to obtain the best categorization per chemical.
+
+## 3.2 Taxonomic classification
+
+```{r taxData, echo=FALSE}
+HESTIA_HC20_DB <- read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv")
+
+selection_list <- c("Test.organisms..species.", "phylum", "class", "order", "genus", "species", "source", "query")
+taxonomy <- read.csv("data/Taxonomy/Species_taxonomy.csv")
+```
+
+The dataset ("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") contains *in vivo* ecotoxicological effect data based on `r nrow(HESTIA_HC20_DB %>% distinct(Test.organisms..species.))` different taxa at various taxonomic level with multiple invalid, misspelled or outdated species definitions, defined in the column "Test.organism..species.". For treating taxonomic information and validation in the R environment, the R package `Taxize` is used extensively [@Taxize].
+The following operations are performed to produce a coherent list fo taxonomic information, scripted in the R code "code/Taxonomy_wrangling.R".
+
+ - Read the "data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv" and select unique records from the "Test.organism..species."-column.
+ - Define binomial species definitions ("genus" + "species"), apply the tol_resolve()-function to correct incorrect taxonomic classifications, separate correct records with taxonomic information. 
+ - Query the NCBI database for full taxonomic information.
+ - Subset all species that could not be queried at NCBI into categories: "not found in the NCBI query", "Common names", and "non-binomial definitions".
+ - Query the GBIF database for additional taxonomic information on the subset "not found in the NCBI query".
+ - Query the NCBI database for common names 
+ - Manually correct taxonomic information, e.g., remove sub-species information within the subset "non-binomial definitions".
+ - Query the NCBI database for corrected taxonomic information in the last subset.
+ - Merge the four subsets and select relevant columns: `r knitr::combine_words(selection_list)`.
+ - Export results as .csv file "data/Taxonomy/Species_taxonomy.csv" where the column "Test.organism..species." contains the original taxonomic information, and the column "Species" contains updated taxonomic information.
+ 
+The operation resolved correct taxonomic information for `r´nrow(taxonomy %>% distinct(Species))`, observe that some taxa were counted twice as both outdated and current names within the starting data.
+
+```{r taxSum, echo=FALSE}
+taxonomy %>% 
+  count(Taxonomy.Group)
+```
+
+
+
+
+Table of contents: 
+
+1. Pre-processing of chemical inventory  
+1.1 The HESTIA chemical inventory  
+1.2 CASRN to SMILES identification  
+2. Querying OECD QSAR Toolbox  
+2.1 Physicochemical data gathering  
+2.2 Ecotoxicological effect data  
+3. Data processing
+3.1 Chemical use categorization  
+3.2 Taxonomic classification
+
+
+
+
+
+\newpage
+# References
+

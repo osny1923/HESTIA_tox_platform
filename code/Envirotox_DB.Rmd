@@ -26,7 +26,7 @@ Description as from above!
 
 ```{r, warning=FALSE}
 # Taxonomy wrangling. Adapting the Envirotox Species list to the HESTIA species list.
-EnviroTox_taxaDB <- readxl::read_xlsx(path = "../data/Envirotox_2023-01-10/envirotox_DB_20230110081208.xlsx",sheet = "taxonomy", col_names = T) %>% 
+EnviroTox_taxaDB <- readxl::read_xlsx(path = "../data/Envirotox_2023-01-10/envirotox_DB.xlsx",sheet = "taxonomy", col_names = T) %>% 
   rename(Species = `Latin name`,
          Class = `Taxonomic class`,
          Order = `Taxonomic order`,
@@ -92,8 +92,8 @@ EnviroTox_taxaDB <- readxl::read_xlsx(path = "../data/Envirotox_2023-01-10/envir
    separate(col = Species, sep = " var ", into = "Species", remove = F, convert = T) %>%
    separate(col = Species, sep = " ", into = "Genus", remove = F, convert = T)
 
-#### NEED TO UPDATE SPECIES NAMES TO CURRENT NAMES!
-# Using the updated species names extract from Taxonomy_wrangling-Rmd
+#### 
+# Using the updated species names extract from Taxonomy_wrangling.Rmd
 EnviroTox_taxaDB <- EnviroTox_taxaDB %>% 
   left_join(x = ., 
             y = read.csv("../data/Taxonomy/names_update.csv") %>% 
@@ -106,7 +106,7 @@ EnviroTox_taxaDB <- EnviroTox_taxaDB %>%
   select(-current_name)
 
 EnviroTox_toxDB <- readxl::read_xlsx(
-  path = "../data/Envirotox_2023-01-10/envirotox_DB_20230110081208.xlsx", 
+  path = "../data/Envirotox_2023-01-10/envirotox_DB.xlsx", 
   sheet = "test", col_names = T, 
   col_types = c("skip", rep("text", times = 4), "guess", rep("text", times = 4), "guess", "guess", "logical", rep("text", times = 3), "numeric")
   ) %>% 
@@ -173,7 +173,7 @@ EnviroTox_toxDB_EC10eq <- EnviroTox_toxDB %>%
   filter(
     Source != "Ecotoxicol. Environ. Saf.8(2): 101-105", 
     # Duplicate data from the same author, also recorded in "Little, L.W., J.C. Lamb III, M.A. Chillingworth, and W.B. Durkin, Acute Toxicity of Selected Commercial Dyes to the Fathead Minnow and Evaluation of Biological Treatment for Reduction of Toxicity"
-    grepl("Acute Toxicity of 46 Selected Dyes to the Fathead Minnow, Pimephales promelas, Dyes and the Environment - Reports on Selected Dyes and Their Effects", Source)
+    !grepl("Acute Toxicity of 46 Selected Dyes to the Fathead Minnow, Pimephales promelas, Dyes and the Environment - Reports on Selected Dyes and Their Effects", Source)
          )
 
 write.csv(EnviroTox_toxDB_EC10eq, "../data/RAW_DB/EnviroTox_toxDB_EC10eq.csv", row.names = F)

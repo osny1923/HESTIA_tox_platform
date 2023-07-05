@@ -181,6 +181,7 @@ write.csv(VEGA_EC10_HQ, "../data/excel_references/QSAR_output/VEGA_EC10_HQ.csv",
 
 ## statistical comparisons of VEGA QSAR data <-> Empirical data 
 ```{r}
+# Loading empirical data
 HESTIA_HC20_dataset <- read.csv("../results/HESTIA_HC20_dataset.csv")
 # Comparing Experimental to Estimated data (ECOTOX ==/== VEGA_QSAR)
 

@@ -21,7 +21,7 @@ Select all the Envirotox data lacking physchem or pesticide info.
 
 # # no need to read this dataset, since it's loaded at the bottom along with PubChemId!
 # # Select CAS and SMILES unique to the Envirotox database
-#   Envirotox_no_physchem <- readxl::read_xlsx(path = "../data/Envirotox_2023-01-10/envirotox_DB_20230110081208.xlsx", sheet = "substance", col_names = T, col_types = c("skip", "guess", rep("text", times = 2), rep("skip", times = 19))) %>%
+#   Envirotox_no_physchem <- readxl::read_xlsx(path = "../data/Envirotox_2023-01-10/envirotox_DB.xlsx", sheet = "substance", col_names = T, col_types = c("skip", "guess", rep("text", times = 2), rep("skip", times = 19))) %>%
 #     mutate(CAS.Number = as.cas(`original CAS`)) %>%
 #     rename(CanonicalSMILES = `Canonical SMILES`) %>%
 #     select(CAS.Number, CanonicalSMILES, `Chemical name`) %>%
@@ -39,7 +39,7 @@ Select all the Envirotox data lacking physchem or pesticide info.
 #                      ))
 #write.csv(Envirotox_no_physchem, "../data/excel_references/Envirotox_no_physchem.csv", row.names = F)
 
-# Writing an outut that will generate Physchem data for the EnviroTox dataset, the records that are missing.
+# Writing an output that will generate Physchem data for the EnviroTox dataset, the records that are missing.
 # write.table(Envirotox_no_physchem[, c("CAS.Number", "CanonicalSMILES")], "../data/excel_references/Envirotox_no_physchem_2.txt", col.names = F, row.names = F, na = "", sep = "\t", quote = FALSE)
 
 Envirotox_no_physchem_CID <- read.csv("../data/excel_references/Envirotox_no_physchem.csv") %>% 
