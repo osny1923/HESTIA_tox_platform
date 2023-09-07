@@ -229,6 +229,16 @@ Species_taxonomy <- rbind(
     select(all_of(selection_list))
 ) %>% 
   distinct(Test.organisms..species., .keep_all = T) %>% 
+  # Manual adjustments to phylum for some cryptic algal species
+  mutate(phylum = case_when(
+    is.na(phylum) & class == "Phaeophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Chrysophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Eustigmatophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Pelagophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Raphidophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Synurophyceae" ~ "Sar", 
+    TRUE ~ phylum)) %>% 
+  # Categorization of phyla into Taxonomic groups
   mutate(Taxonomy.Group = case_when( 
     phylum == "Chordata" & class %in% c("Amphibia", "Amphibian") ~ "Amphibian",
     phylum == "Chordata" & class %in% c("Actinopterygii", "Actinopteri") ~ "Fish", 

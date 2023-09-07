@@ -20,10 +20,9 @@ Henriksson_inventory_long <- Henriksson_inventory_inputs_clean %>%
 Henriksson_inventory_w_names<- Henriksson_inventory_long %>% 
   rename(CAS.Number = CASRN) %>% 
   left_join(., 
-            CAS.list_HESTIA %>% 
-              rename(CAS.Number = CAS.number),
+            cas_smiles,
             by = "CAS.Number") %>% 
-  mutate(term.name = coalesce(term.name, name)) %>% 
+  mutate(term.name = coalesce(PesticideAI_name, name)) %>% 
   select(-name) %>% 
   left_join(., 
             HESTIA_HC20_dataset %>% 

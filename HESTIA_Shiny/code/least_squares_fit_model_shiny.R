@@ -52,6 +52,8 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
                     sigma = NULL,
                     mean_HCx = NULL,
                     sd_HCx  = NULL,
+                    # CV_HCx = NULL, 
+                    # Phi_HCx = NULL, 
                     Q2.5 = NULL,
                     Q97.5 = NULL,
                     Geo_St.Dev = NULL,
@@ -59,38 +61,12 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
                     nls_results = NULL,
                     HCx_vec = NULL,
                     MC_mu = NULL,
-                    MC_sig = NULL)
+                    MC_sig = NULL,
+                    responseSequence = NULL,
+                    predicted_values = NULL,
+                    prediction_data = NULL
+                    )
 
-    # If insufficient data (number of species <5 and/or number of taxonomic groups <3), print statement "not enough data" and move to the next substance. 
-    # if (error_df[,"n_sp"] <5 | error_df[,"n_tax.grp"] <3) {
-    #   output_list$CAS.Number <- {{CAS}}
-    #   output_list$log_HCxEC10 <- as.numeric(NA)
-    #   output_list$CRF <- as.numeric(NA)
-    #   output_list$mu <- as.numeric(NA)
-    #   output_list$sigma <- as.numeric(NA)
-    #   output_list$mean_HCx <- as.numeric(NA)
-    #   output_list$sd_HCx  <- as.numeric(NA)
-    #   output_list$Q2.5 <- as.numeric(NA)
-    #   output_list$Q97.5 <- as.numeric(NA)
-    #   output_list$status <- "not enough data"
-    #   output_list$n_sp <- as.numeric(error_df[,"n_sp"])
-    #   output_list$n_tax.grp <- as.numeric(error_df[,"n_tax.grp"])
-    #   output_list$n_recs <- as.numeric(error_df[,"n_recs"])
-    #   output_list$HCx_vec <- as.numeric(NA)
-    #   output_list$nls_results <- as.numeric(NA)
-    #   # Create a blank plot
-    #   plt <- ggplot() +
-    #     theme_void() +
-    #     labs(title = "WARNING: Too few data points to produce an SSD curve", 
-    #          subtitle = NULL, 
-    #          x = NULL, 
-    #          y = NULL)
-    #   
-    #     
-    # }
-    # 
-    # else {
-  
   
       ### Using the input dataset to get counts, means and Sd.
       d.frame <- dataset %>%
@@ -108,21 +84,25 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
         # Denoting the order of appearance in cumulative form:
         mutate(y_rank = (rank(sp_mean, na.last = NA) - 0.5)/length(unique(Species)),
                # Some occurrences where sd == 0 cause error in the nls model. making these into NA's
-               sd_Li = case_when(sd_Li == 0 ~ as.numeric(NA), TRUE ~ sd_Li)) %>%
+               sd_Li = case_when(sd_Li == 0 ~ 1,
+                                 is.na(sd_Li) ~ 1, 
+                                 TRUE ~ sd_Li)) %>%
         arrange(y_rank) %>%
         mutate(Taxonomy.Group = as.factor(Taxonomy.Group))
       
       z_HCx <- sqrt(2)*erfinv(2*({{HCx}}/100)-1)
       output_list$non_W_HCxEC10 <- mean(d.frame$sp_mean, na.rm = T) + (z_HCx * sd(d.frame$sp_mean, na.rm = T))
       
+      
       # adding a tryCatch to identify status occurring due to few records, resulting in non-convergence.
       output_list$status <- tryCatch({
-        
+  
       # The nonlinear least squares (nls()) function assuming a cumulative normal distribution
       nlc <- nls.control(maxiter = 1000, warnOnly = TRUE)
       nls_out <- nls(y_rank ~ cum_norm_dist_function(sp_mean, mu, sig), 
                      control = nlc, 
                      data=d.frame, 
+                     weights = 1/(sd_Li),
                      start = cnormSS(sp_mean ~ sd_Li, 
                                      data = d.frame)
                      )
@@ -134,6 +114,15 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
       warning = function(w){
         "warning: step factor reduced below 'minFactor'"
       })
+      
+      # Generate predictions from the nls model
+      output_list$responseSequence <- data.frame(sp_mean = seq(min(d.frame$sp_mean), max(d.frame$sp_mean), length.out = 10000))
+      output_list$predicted_values <- predict(nls_out, newdata = output_list$responseSequence)
+      
+      # Create a data frame with predictions
+      output_list$prediction_data <- data.frame(sp_mean = output_list$responseSequence[[1]], predicted_values = predicted_values)
+      
+      
       if (output_list$status %in% c("warning: step factor reduced below 'minFactor'",
                                      "singular gradient matrix at initial parameter estimates")) {
         output_list$CAS.Number <- {{CAS}}
@@ -164,6 +153,8 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
         
         output_list$mean_HCx <- mean(output_list$HCx_vec[[1]], na.rm=T)
         output_list$sd_HCx <- sd(output_list$HCx_vec[[1]], na.rm=T)
+        # output_df$CV_HCx <- (output_df$sigma/output_df$mu)*100
+        # output_df$Phi_HCx <- sqrt(log((output_df$CV_HCx^2)+1))
         output_list$Q2.5 <- quantile(output_list$HCx_vec[[1]], 0.025, na.rm=T)
         output_list$Q97.5 <- quantile(output_list$HCx_vec[[1]], 0.975, na.rm=T)
         output_list$MC_logHC20ec10eq = output_list$mean_HCx + (-0.842 * output_list$sd_HCx)
@@ -173,7 +164,8 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
         # Comparing variation across chemicals using the geoSD and first back-log-transform all the log-data
         output_list$Geo_St.Dev <- geoSD(10^output_list$HCx_vec[[1]], na.rm = TRUE)
         #output_list$HCx_vec <- output_list$HCx_vec[[1]] # for plotting a histogram over the HC20EC10eq Monte Carlo data distribution
-        
+      
+        # Making all numbers to be presented as maxmum 4 decimals
         output_list[c(2:4, 6, 10:16)] <- lapply(output_list[c(2:4, 6, 10:16)], round, digits = 4)
         
   # Plotting output!
@@ -188,7 +180,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
       
      # Generate a plot object that can be put in a list at the end of the function.
      plt <- ggplot(d.frame, aes(x = sp_mean, y = y_rank)) +
-        geom_point(aes(fill = Taxonomy.Group), shape = 21, size = 1.5, alpha = 0.7) +
+        geom_point(aes(fill = Taxonomy.Group), shape = 21, size = 3, alpha = 0.7) +
        
      # Conditionally plotting percentiles if there are values available
           {if(c_int_on)geom_point(aes(x = output_list$Q2.5,
@@ -197,13 +189,19 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
           {if(c_int_on)geom_point(aes(x = output_list$Q97.5,
                          y = ({{HCx}}/100), color = "high_CI", shape = "high_CI"),
                      inherit.aes = F)} +
-          
-       # plotting the nls function usng the same arguments as the nls model above.
+           geom_smooth(
+             data = output_list$prediction_data, 
+             aes(x = sp_mean, y = output_list$predicted_values), 
+             color = "red", 
+             method = "auto", 
+             se = FALSE) +
+       # plotting the nls function usng the same arguments as the nls model above. (DEPRECATED, This runs the nonweighted nls model)
           geom_smooth(method = "nls",
                       formula = y ~ cum_norm_dist_function(x, mu, sig),
                       method.args = list(start = cnormSS(sp_mean ~ sd_Li, data = d.frame)),
                       se =  FALSE) + # this is important
           #geom_ribbon(aes(ymin=Q2.5, ymax=Q97.5), alpha=0.2, na.rm = TRUE) +
+       
           geom_point(aes(x = output_list$log_HCxEC10, y = ({{HCx}}/100), color = "HC20EC10eq", shape = "HC20EC10eq"), inherit.aes = F) +
           geom_point(aes(x = output_list$MC_logHC20ec10eq, y = ({{HCx}}/100), color = "MC_logHC20ec10eq", shape = "MC_logHC20ec10eq"), inherit.aes = F) +
           geom_point(aes(x = output_list$non_W_HCxEC10, y = ({{HCx}}/100), color = "non_W_HCxEC10", shape = "non_W_HCxEC10"), inherit.aes = F) +
@@ -218,7 +216,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
                              values = c(15, 8, 17, 19, 13)
           ) +
           labs(title = paste("CAS", output_list$CAS.Number, sep = " "),
-               subtitle = paste("log10HC", {{HCx}}, "EC10eq"," = ", round(output_list$log_HCxEC10, digits = 4), sep = ""),
+               subtitle = paste("log10HC", {{HCx}}, " = ", round(output_list$log_HCxEC10, digits = 4),"| BLUE = Unweighted, RED = Weighted", sep = ""),
                x = "mean(log) EC10eq (mg L-1)",
                y = "Response level (%)") +
           theme_linedraw() +

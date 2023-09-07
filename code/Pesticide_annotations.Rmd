@@ -4,7 +4,7 @@ author: "Oskar Nyberg"
 date: "2023-01-20`"
 output: html_document
 ---
-# Dir & Libraries
+# Loading libraries
 ```{r setup}
 knitr::opts_chunk$set(warning = FALSE)
    #install.packages("webchem")
@@ -28,7 +28,7 @@ CAS_CID_list <- read.csv("../data/excel_references/CAS_CID_list_final.csv") %>%
 ```
 
 
-Looking for Metadata
+# Looking for Use-categories in databases.
 
 ## USEPA Comptox categorized lists
 ```{r}
@@ -75,12 +75,11 @@ USEPA_CHEMLIST <- USEPA_CHEMLIST %>%
 
 ```
 
-**US EPA ECOTOX DB** (locally downloaded file) - accessed 2022-march-10 - is used to extract information on "ecotox_group" for substances. This file has `r nrow(USEPA_Ecotox_Chem_DB)` rows and is eerily similar to HESTIA's PesticideAI.csv file which this whole work is based off of. 
-
-```{r}
+**US EPA ECOTOX DB** (locally downloaded file) - accessed 2022-march-10 - is used to extract information on "ecotox_group" for substances.  
+```{r ECOTOX}
 # US EPA ECOTOX Chemical Type Annotations
-USEPA_Ecotox_Chem_DB <- read.delim("../../../Backup HESTIA/USEPA-ECOTOX DB/ecotox_ascii_03_10_2022/validation/chemicals.txt", header = T, sep = "|") %>% 
-  mutate(CAS.Number = as.cas(cas_number))%>% 
+USEPA_Ecotox_Chem_DB <- read.delim("../data/USEPA_ASCII_chemical_inventory.txt", header = T, sep = "|") %>% 
+  mutate(CAS.Number = as.cas(cas_number)) %>% 
   select(-cas_number)%>% 
   mutate(
     dtxsid = gsub("None", as.character(NA), dtxsid),
@@ -91,9 +90,12 @@ USEPA_Ecotox_Chem_DB <- read.delim("../../../Backup HESTIA/USEPA-ECOTOX DB/ecoto
     across(starts_with("BCPC"), ~ case_when(.x == "NA" ~ as.character(NA), TRUE ~ .x))) %>% 
   rename(USEPA_ecotox_group = ecotox_group)
 
+write.csv(USEPA_Ecotox_Chem_DB, "../data/excel_references/USEPA_ECOTOX_ECOTOX_GRP.csv", row.names = FALSE)
 ```
 
-Additional Database queries comes from the following repositories: British Compendium of Pesticide Common Names (BCPC) which is accessed via the `webchem` package []. 
+This file has `r nrow(USEPA_Ecotox_Chem_DB)` rows and is eerily similar to HESTIA's PesticideAI.csv file which this whole work is based off of. 
+
+**British Compendium of Pesticide Common Names (BCPC)** accessed via the `webchem` package. 
 ```{r}
 # Query the BCPC Compendium of Pesticide Common Names https://pesticidecompendium.bcpc.org
   # Query and code has been made as: 
@@ -133,6 +135,8 @@ Pest_info <- Pest_rbind %>% # selecting the cols i want to add in the final outp
   mutate_all( ~ na_if(., '')) %>% 
   mutate_all( ~ na_if(., 'NA')) %>% 
   select(-c(inchikey, inchi))
+
+write.csv(Pest_info, "../data/excel_references/BCPC_df.csv", row.names = F)
 
 ```
 
@@ -180,31 +184,29 @@ ChEMBL_data <- ChEMBL_CID %>%
 ```
 
 
-## The ChEBI database has some cool information in the "parents" subsection. 
-https://www.ebi.ac.uk/chebi/init.do 
 
+**The ChEBI database** has some cool information in the "parents" subsection. https://www.ebi.ac.uk/chebi/init.do 
 I scrape the database for all data available current on substance list. 
-
 ```{r}
 # dependency:`CAS_CID_list` object loaded in the first chunk
 
-#HESTIA_ChEBI_name <- get_chebiid(CAS_CID_list$CAS.Number, from = "registry numbers", match = "best", stars = "all", verbose = T) # OK, Done
-#write_rds(HESTIA_ChEBI_name, "HESTIA_Chem_Chebi_IDs.txt")
-HESTIA_ChEBI_name <- read_rds("../data/excel_references/HESTIA_Chem_Chebi_IDs.txt")
+#ChEBI_name <- get_chebiid(CAS_CID_list$CAS.Number, from = "registry numbers", match = "best", stars = "all", verbose = T) # OK, Done
+#write_rds(ChEBI_name, "HESTIA_Chem_Chebi_IDs.txt")
+ChEBI_name <- read_rds("../data/excel_references/HESTIA_Chem_Chebi_IDs.txt")
 
-#HESTIA_ChEBI_all_list <- chebi_comp_entity(HESTIA_ChEBI_name$chebiid, verbose = T) #OK, Done
-#write_rds(HESTIA_ChEBI_all_list, "HESTIA_Chem_all_ChEBI_data.txt")
-HESTIA_ChEBI_all_list <- read_rds("../data/excel_references/HESTIA_Chem_all_ChEBI_data.txt")
+#ChEBI_all_list <- chebi_comp_entity(ChEBI_name$chebiid, verbose = T) #OK, Done
+#write_rds(ChEBI_all_list, "HESTIA_Chem_all_ChEBI_data.txt")
+ChEBI_all_list <- read_rds("../data/excel_references/HESTIA_Chem_all_ChEBI_data.txt")
 
 # Starting with the wrangling of lists:
-HESTIA_ChEBI_all_list_drop.na <- HESTIA_ChEBI_all_list[!is.na(HESTIA_ChEBI_all_list)] # Removing NAs list objects
-#HESTIA_ChEBI_all_list__flat <- as.data.frame(do.call(rbind, HESTIA_ChEBI_all_list_drop.na))
-HESTIA_ChEBI_all_list_parents <- do.call("rbind", lapply(HESTIA_ChEBI_all_list_drop.na, "[[", 10) ) # Flattening the "Parents" data frame with substance information
-HESTIA_ChEBI_all_list_parents$ChEBId <- rownames(HESTIA_ChEBI_all_list_parents) # Creating a substance name column
-rownames(HESTIA_ChEBI_all_list_parents) = NULL # Removing rownames
+ChEBI_all_list_drop.na <- ChEBI_all_list[!is.na(ChEBI_all_list)] # Removing NAs list objects
+#ChEBI_all_list__flat <- as.data.frame(do.call(rbind, ChEBI_all_list_drop.na))
+ChEBI_all_list_parents <- do.call("rbind", lapply(ChEBI_all_list_drop.na, "[[", 10) ) # Flattening the "Parents" data frame with substance information
+ChEBI_all_list_parents$ChEBId <- rownames(ChEBI_all_list_parents) # Creating a substance name column
+rownames(ChEBI_all_list_parents) = NULL # Removing rownames
 
 # list of pesticides;
-HESTIA_ChEBI_definitions <- HESTIA_ChEBI_all_list_parents %>% 
+ChEBI_definitions <- ChEBI_all_list_parents %>% 
     #filter(type == "has role") %>% 
     separate(col = ChEBId, into = c("CheBId", "row.nr"), sep = "\\.", remove = T) %>% 
     mutate(type = case_when(chebiId %in% c("CHEBI:38805", "CHEBI:22153", "CHEBI:39215", "CHEBI:22583", "CHEBI:51076", "CHEBI:86328", "CHEBI:33289",
@@ -257,11 +259,11 @@ HESTIA_ChEBI_definitions <- HESTIA_ChEBI_all_list_parents %>%
                             
                            TRUE ~ as.character(NA))) 
 
-ChEBI_annot <-  HESTIA_ChEBI_definitions %>% 
+ChEBI_annot <-  ChEBI_definitions %>% 
                 distinct(CheBId, .keep_all = T) %>% 
                 select(chebiName, CheBId) %>%
                 left_join(x =.,
-                          y = HESTIA_ChEBI_definitions %>% 
+                          y = ChEBI_definitions %>% 
                                 filter(!grepl(paste(c("metabolite", "inhibitor"), collapse = "|"), chebiName),
                                        !is.na(type)) %>% 
                                 select(-c(row.nr, status, cyclicRelationship, chebiName)) %>% 
@@ -307,11 +309,11 @@ ChEBI_annot$ChEBI_DB <- sapply(strsplit(as.character(ChEBI_annot$ChEBI_DB), ';\\
       
 # Flattening the "regnumbers" data frame with Registry numbers
 # But it's "too" flat! I have lost the ChEBI ID nr.
-HESTIA_ChEBI_all_list_regnumbers <- do.call("bind_rows", lapply(HESTIA_ChEBI_all_list_drop.na, "[[", 7) ) %>%  # The dplyr "bind_rows" function inserts NAs to force together dfs with uneven amount of columns!! 
+ChEBI_all_list_regnumbers <- do.call("bind_rows", lapply(ChEBI_all_list_drop.na, "[[", 7) ) %>%  # The dplyr "bind_rows" function inserts NAs to force together dfs with uneven amount of columns!! 
                                       filter(type == "CAS Registry Number") %>% 
                                       distinct(data, .keep_all = T)
 
-reg_nr <- as.data.frame(do.call(rbind, HESTIA_ChEBI_all_list_drop.na)) %>% 
+reg_nr <- as.data.frame(do.call(rbind, ChEBI_all_list_drop.na)) %>% 
     select(regnumbers)
 
 reg_nr <- do.call("rbind", lapply(reg_nr$regnumbers, "[[", 1) )
@@ -338,7 +340,7 @@ ChEBI_ID_CAS$ChebId <- rownames(ChEBI_ID_CAS)
 rownames(ChEBI_ID_CAS) = NULL # Removing rownames
 
 # Adding lot's of inchl and stuff... is it important?? NO. Not now..
-p <- as.data.frame(do.call(rbind, HESTIA_ChEBI_all_list_drop.na)) %>% 
+p <- as.data.frame(do.call(rbind, ChEBI_all_list_drop.na)) %>% 
     select(properties)
 p$ChEBId <- rownames(p)
 rownames(p) = NULL # Removing rownames
@@ -365,10 +367,12 @@ ChEBI_annot_merge <- ChEBI_annot %>%
             y = pq, 
             by = "chebiid") %>% 
   distinct(CAS.Number, .keep_all = TRUE)
+
+write.csv(ChEBI_annot_merge, "../data/excel_references/ChEBI_df.csv", row.names = F)
 ```
  
- Joining it all together
- 
+
+## Joining it all together
 ```{r}
 HESTIA_Comp_info <- CAS_CID_list %>% 
     # Merging US EPA ECOTOX Chemical Type Annotations with HESTIA CAS numbers list
@@ -406,7 +410,7 @@ HESTIA_Comp_info <- CAS_CID_list %>%
 
 ## Substance Type Annotations
 Creating an annotation on substances being 1. Inorganic/Organic, 2. containing Heavy metals, and 3. being Halogenated.
-(Heavy metals are defined as those metals and metalloids which have an atomic number greater than 20 and density 5 g cc− 1 and also have properties of metals.)
+(Heavy metals are defined as those metals and metalloids which have an atomic number greater than 20 and density 5 g per cubic centimeter and also have properties of metals.)
 ```{r}
 # Halogenated: contains c(F, Cl, Br, I)
 
@@ -459,21 +463,12 @@ HESTIA_Comp_info_2 <-  HESTIA_Comp_info %>%
     Halogenated = case_when(CAS.Number %in% Halogenated_vector_x ~ "1", 
       TRUE ~ "0" ))
 
-# # Defining a function to clean up the strings united as "Subgroup"
-# clean_string <- function(x) {
-#   x %>% 
-#     str_split("; ") %>% 
-#     unlist() %>% 
-#     unique() %>% 
-#     str_c(collapse = "; ")
-# }
-
 # Making a substance definition function to count the number of occurrences of a chemical use-category and extracting the top candidate.
 # the function is named "use_prio_function()"
 source("../code/Use_category_function.R")
 
 # Running the function takes a couple of minutes.
-#prio_use_cat <- use_prio_function(HESTIA_Comp_info_2)
+prio_use_cat <- use_prio_function(HESTIA_Comp_info_2)
 
 HESTIA_Comp_info_3 <- cbind(HESTIA_Comp_info_2, 
                             prio_use_cat %>% 
@@ -484,9 +479,6 @@ HESTIA_Comp_info_3 <- cbind(HESTIA_Comp_info_2,
 # Wrangling the dataset into the final output state, creating a Group and Subgroup category, and making sure they look tidy. 
 
 HESTIA_chem_prop_list_full <- HESTIA_Comp_info_3 %>% 
-  # mutate_all( ~ na_if(., '')) %>%
-  # mutate_all( ~ na_if(., 'NA')) %>%
-  # mutate_all( ~ na_if(., 'NANA')) %>% 
   unite("Subgroup", c(
     "ChEBI_DB", "ATC_Type", "USEPA_ecotox_group", 
     "BCPC_activity", "DRUGBANK", "EPAPCS", "HEALTHY_BUILDING_NETWORK", 
@@ -498,30 +490,13 @@ HESTIA_chem_prop_list_full <- HESTIA_Comp_info_3 %>%
       grepl("antibiotic", Select_use) ~ "Antibiotic",
       grepl("PPCP", USEPA_ecotox_group, fixed = F) ~ "PPCP",
       grepl("Antiviral", Subgroup) ~ "Antiviral",
-      grepl("Pharmaceutical", Subgroup) ~ "Pharmaceutical",
-      #grepl("Pesticide", Subgroup) ~ "Pesticide",
-      #grepl(paste(c("Antimicrobial", "antiinfective","antibacterial", "antibiotic"), collapse = "|"), Subgroup, fixed = F) ~ "Antibiotic",
+      grepl("Pharmaceutical", Subgroup) ~ "PPCP",
         TRUE ~ case_when(
           Substance_type == "Organic" ~ "Other organic chemicals",
           is.na(CanonicalSMILES) ~ "Unknown",
             TRUE ~ "Other inorganic chemicals"))
     ) %>%
-      # rowwise() %>% # Removing the Group category from Subgroup.
-      # mutate(Subgroup = case_when(grepl(paste((Group)), Subgroup) ~ gsub(paste(Group, ";", sep = ""), "", Subgroup),
-      #                             TRUE ~ Subgroup)) %>% 
-      # mutate(Subgroup = case_when(grepl(paste((Group)), Subgroup) ~ gsub(paste(Group), "", Subgroup),
-      #                             TRUE ~ Subgroup)) %>% 
-      # mutate(Subgroup = clean_string(Subgroup)) %>% 
-      # ungroup() %>% 
-      # mutate(
-      #   #Subgroup = gsub("_ingredient", "pesticide_ingredient", Subgroup),
-      #   Subgroup = sub(";\\s*;", ";", Subgroup),
-      #   Subgroup = sub("\\s*\\(s\\)", "", Subgroup),
-      #   Subgroup = sub("\\(\\)", "", Subgroup),
-      #   Subgroup = sub("^;+", "", Subgroup),
-      #   Subgroup = sub("^ |^; |^;|^,| $|; *$", "", Subgroup)
-      # ) %>% 
-    select(CAS.Number, PesticideAI_name, CanonicalSMILES, Group, Subgroup, Select_use, n, Substance_type, `Heavy Metals`, Halogenated, 
+      select(CAS.Number, PesticideAI_name, CanonicalSMILES, Group, Subgroup, Select_use, n, Substance_type, `Heavy Metals`, Halogenated, 
              definition, ChEBI_DB, ATC_Type, USEPA_ecotox_group, BCPC_pesticide, BCPC_activity, ATC_Description,
              DRUGBANK, EPAPCS, HEALTHY_BUILDING_NETWORK, NORMAN_ITN, OPPIN, PPDB, USEPA, Wikipedia) %>% 
       mutate(Subgroup = tolower(Subgroup)) %>% 

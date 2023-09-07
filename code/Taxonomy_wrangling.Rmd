@@ -222,31 +222,35 @@ Species_taxonomy <- rbind(
     select(all_of(selection_list))
   ) %>% 
   distinct(Test.organisms..species., .keep_all = T) %>% 
-  mutate(Taxonomy.Group = case_when( 
-    phylum == "Chordata" & class %in% c("Amphibia", "Amphibian") ~ "Amphibian",
-    phylum == "Chordata" & class %in% c("Actinopterygii", "Actinopteri") ~ "Fish", 
-    phylum == "Arthropoda" & class %in% c("Insecta") ~ "Insect",
-    phylum == "Arthropoda" & !class %in% c("Insecta", "Arachnida") ~ "Crustacean",
-    phylum == "Mollusca" ~ "Mollusca",
-    phylum == "Streptophyta" ~ "Plant",
-    phylum == "Rotifera" ~ "Rotifera",
-    phylum == "Annelida" ~ "Annellidae",
-    phylum %in% c(
-      "Sar",
-      "Rhodophyta",
-      "Bacillariophyta", 
-      "Cyanobacteriota", 
-      "Chlorophyta", 
-      "Ochrophyta",
-      "Rhdophyta",
-      "Miozoa",
-      "Cryptophyta",	
-      "Haptophyta",
-      "Charophyta",
-      "Euglenophyta") ~ "Algae",
-        TRUE ~ "Others"),
-  Taxonomy.Group = case_when(is.na(query) ~ as.character(NA), TRUE ~ Taxonomy.Group)
-    )%>%
+  # Manual adjustments to phylum for some cryptic algal species
+  mutate(phylum = case_when(
+    is.na(phylum) & class == "Phaeophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Chrysophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Eustigmatophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Pelagophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Raphidophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Synurophyceae" ~ "Sar", 
+    is.na(phylum) & class == "Cryptophyceae" ~ "Cryptophyta", 
+    is.na(phylum) & class == "Dinophyceae" ~ "Dinophyta",
+      TRUE ~ phylum)) %>% 
+  # Categorization of phyla into Taxonomic groups
+  mutate(
+    #Taxonomy.Group = case_when(is.na(query) ~ as.character(NA), TRUE ~ Taxonomy.Group),
+    Taxonomy.Group = case_when( 
+      phylum == "Chordata" & class %in% c("Amphibia", "Amphibian") ~ "Amphibian",
+      phylum == "Chordata" & class %in% c("Actinopterygii", "Actinopteri") ~ "Fish", 
+      phylum == "Arthropoda" & class %in% c("Insecta") ~ "Insect",
+      phylum == "Arthropoda" & !class %in% c("Insecta", "Arachnida") ~ "Crustacean",
+      phylum == "Mollusca" ~ "Mollusca",
+      phylum == "Streptophyta" ~ "Plant",
+      phylum == "Rotifera" ~ "Rotifera",
+      phylum == "Annelida" ~ "Annellidae",
+      phylum %in% c(
+        "Sar", "Rhodophyta", "Bacillariophyta", "Cyanobacteriota", 
+        "Chlorophyta", "Ochrophyta", "Rhdophyta", "Miozoa", "Cryptophyta",	
+        "Haptophyta", "Charophyta", "Euglenophyta", "Dinophyta") ~ "Algae",
+        TRUE ~ "Others")
+    ) %>%
   rename_with(str_to_title) %>% 
   rename(Taxonomy.Group = Taxonomy.group,
          Test.organisms..species. = Test.organisms..Species.)
@@ -263,4 +267,10 @@ filter(species.x != unique_name) %>%
   distinct(old_name, .keep_all = T) %>%
   write.csv(., "../data/Taxonomy/names_update.csv", row.names = F)
 
+Species_taxonomy %>% 
+  filter(is.na(Taxonomy.Group))
+  
+Species_taxonomy %>% 
+  filter(Taxonomy.Group == "Others" & is.na(Phylum))
+  
 ```

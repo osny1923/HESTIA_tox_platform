@@ -364,4 +364,108 @@ plot_dataset_good %>%
 
 ```
 
+### Exploring QSAR methods
+The applicability of toxicological effect data derived from quantitative structure–activity relationship (QSAR) models generated are explored using VEGA software application [@Benfenati2013VEGAQSARAI]. Estimated effect concentrations are based on substances’ SMILES configuration and the estimated effect data are reported with the unit $mg\text{ }l^{-1}$ along with a quality evaluation of the prediction based on the similarity to compared compounds. Model estimation quality is calculated as a compounded similarity index which evaluates similarities to validated training datasets of chemicals as an "applicability domain" (AD) index and is reported as "EXPERIMENTAL", "GOOD", and "MODERATE", "LOW", or "ERROR" for each chemical respectively [@floris2014generalizable]. Since training datasets only contain organic substances, multi-constituent or metal-complexes will be given "ERROR" status. Fifteen selected QSAR models were applied across the `r nrow(read_tsv("data/excel_references/CAS_CID_list_final.txt", col_names = F)[,2] %>% filter(!is.na(.)))` chemicals with SMILES configuration available (see Table \@ref(tab:QSARModels)). Full documentation of models, training data and AD index parameters is provided at the [VEGA QSAR online platform](https://www.vegahub.eu/portfolio-item/vega-qsar-models-qrmf/). Estimated effect concentrations were subsequently transformed into EC10eq using the same regression coefficients as for the empirical dataset: 0.6 for Chronic NOEC to chronic EC10eq conversions and 2 for Acute E(L)C50 to chronic EC10eq. $log(HC20_{EC10^{eq}})$ and $CRF_{HC20}$ values are subsequently calculated according to the methodology used for the HESTIA empirical toxicological effect dataset. Here species-specific averages are applied across "algae", "D.magna", and "fish", which means that the number of species data to construct SSD models is not sufficient (number of species <5), therefore no SSDs are constructed, but HC20EC10eq-values are calculated using eq.1-7. One "high-quality" dataset is created from a subset of the QSAR estimations where only records with "EXPERIMENTAL", "GOOD", and "MODERATE" quality are selected as a complimentary analysis. Quality of all available predictions are measured as a "QSAR-Empirical match ratio" between the calculated HC20-values based on QSAR estimations ($HC20_{QSAR}$) and the HC20-values based on empirical records ($HC20_{emp}$) as $\frac{HC20_{QSAR}}{HC20_{emp}}$.   
 
+### Investigating the applicability of QSAR models to estimate toxicological effect data  
+
+```{r QSAR-lm-chunk}
+
+CAS_SMILES_list <- read_tsv("../data/excel_references/CAS_CID_list_final.txt", col_names = F)
+names(CAS_SMILES_list) <- c("CAS.Number", "SMILES")
+CAS_SMILES_list_no_na <- CAS_SMILES_list %>% 
+  filter(!is.na(SMILES))
+
+QSAR_emp_abs_diff_df <- read.csv("../data/excel_references/QSAR_output/QSAR_emp_abs_diff_df.csv")
+# fitting a linear model for the VEGA-empirical comparisons on HQ data
+# 1. Confirming data assumptions of linearity. A coefficient close to -1 or 1 means linearity of data, 0 means very low linear correlation
+  # This finds the correlation coefficient between the CRF_all and CRF_VEGA columns of the data frame.
+# shapiro.test(QSAR_emp_abs_diff_df$logHC20EC10eq_VEGA)
+# shapiro.test(QSAR_emp_abs_diff_df$HC20EC10eq)
+# qqplot(QSAR_emp_abs_diff_df$HC20EC10eq, QSAR_emp_abs_diff_df$logHC20EC10eq_VEGA)
+# correlation_test <- cor.test(QSAR_emp_abs_diff_df$HC20EC10eq, QSAR_emp_abs_diff_df$logHC20EC10eq_VEGA)
+
+# 2. Building a model on training data  
+# This creates a simple linear regression model where CRF_VEGA is the outcome variable and CRF_all is the predictor variable. The data used is a data frame named plot_dataset
+lm_model <- lm(HC20EC10eq ~ logHC20EC10eq_VEGA, data = QSAR_emp_abs_diff_df)
+# 3. Assessing the model’s fit
+# RSE can be found in the summary of a model.
+   #summary(lm_model)
+
+# 4. Analyzing model results.
+# This finds the R Squared value of a linear regression model named model.
+r_value <- summary(lm_model)$r.squared
+ # summary(lm_model)$coefficients
+```
+
+From the `r nrow(CAS_SMILES_list_no_na)` mono-constituent chemicals that could be matched to a SMILES annotation, the most prevalent outcome is low quality scoring chemicals, the KNN acute LC50 fish toxicity model producing the most good quality matches contrasted by the NIC acute LC50 fish toxicity model which produced no higher quality matches, apart from the chemicals present within the model's training data. A summarized overview of the QSAR estimations quality report in shown in Table \@ref(tab:QSARModels).  
+
+```{r QSARModels}
+# QSAR comparison to Empirical data df
+QSAR_emp_abs_diff_df <-  read.csv("../data/excel_references/QSAR_output/QSAR_emp_abs_diff_df.csv")
+
+median_diff_value <- QSAR_emp_abs_diff_df %>% summarise(median = median(abs_diff, na.rm = T))
+
+# QSAR quality summary table
+QSAR_table <- autofit(flextable(read.csv("../data/excel_references/QSAR_output/VEGA_summary.csv", header = T) %>% 
+                                  mutate(QSAR_model = gsub("_eval", "", QSAR_model),
+                                         QSAR_model = gsub("_", " ", QSAR_model)) %>% 
+                                  rename(`QSAR model` = QSAR_model)))
+QSAR_table %>%  
+  set_caption("Summary of the QSAR models applied to the HESTIA toxicological dataset, with counts of model quality per QSAR model. 'ERROR'-column implies either ERROR-reported quality score, estimates are missing, or estimate = 0 mg/L") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
+  fontsize(., size = 9, part = "all")
+
+```
+
+
+Only a small subset of chemicals are eligible to include for $log(HC20_{EC10^{eq}})$ calculations as a "high-quality" subset with `r nrow(QSAR_emp_abs_diff_df)` records where HC20-values are based on only "GOOD" and "MODERATE" quality are selected for analysis. Records marked as "EXPERIMENTAL" were removed to not compare data originating from the same source as the experimental records. When fitting a linear model to the calculated $log(HC20_{EC10^{eq}})$-values based on QSAR estimations ($log(HC20_{EC10^{eq}_{QSAR}})$) and $log(HC20_{EC10^{eq}})$-values based on empirical records ($log(HC20_{EC10^{eq}_{emp}})$) we see a strong relationship between the two datasets, but only `r round(r_value, 3)` % of the variability of $log(HC20_{EC10^{eq}_{QSAR}})$ is explained by $log(HC20_{EC10^{eq}_{emp}})$ (Figure \@ref(fig:QSAREmp) a)). Worth noting is the severe under-estimation in toxicity for the substances deemed most toxic from empirical data, highlighted in the red circle in Figure \@ref(fig:QSAREmp) a), where toxicity is underestimated by several orders of magnitude in the QSAR estimations. Figure \@ref(fig:QSAREmp) **b)** shows the distribution of relative difference between QSAR estimations to empirical data, presented on a log scale where the quality of all available predictions are measured as a "QSAR to empirical data ratio" ($R_{QSAR/Emp}$) between $log(HC20_{EC10^{eq}_{QSAR}})$ and the $log(HC20_{EC10^{eq}_{emp}})$ as  
+
+\begin{equation}
+\frac{logHC20EC10eq_{QSAR}}{logHC20EC10eq_{emp}} = R_{QSAR/Emp}
+(\#eq:eq12)
+\end{equation}
+
+  
+```{r QSAREmp, fig.dim = c(12, 6), fig.cap = "(TEST CAPTION)"}
+# Comparing data points of CRF_all & CRF_vega for HQ_data
+QSAR_plot_HQ <- QSAR_emp_abs_diff_df %>% 
+    ggplot(aes(x = HC20EC10eq, y = logHC20EC10eq_VEGA)) +
+    geom_point(size = 1) +
+    geom_smooth(method = "lm", color ="blue", size = 1) +
+    geom_text(aes(x = 2, y = 4), label = paste("R^2 =", round(r_value, 4))) +
+    #geom_abline(intercept = 0, slope = 1, color = "blue") +
+    #scale_y_log10() +
+    #scale_x_log10() +
+    geom_ellipse(aes(x0 = -4.8, y0 = -0.8, a = 2, b = 0.5, angle = pi / 6), color = "red", fill = NA, show.legend = FALSE) +
+    theme(panel.grid.major = element_blank(),
+          text = element_text(color = "black", family = "serif"), 
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(), 
+          axis.line = element_line(colour = "black")) +
+    xlab("logHC20EC10eq-values based on empirical records") +
+    ylab("logHC20EC10eq-values based on estimated QSAR data") +
+    labs(tag = "a)") +
+    ggtitle(paste("Comparison between empirical data to (HQ) QSAR estimations\n of logHC20EC10eq-values, ", nrow(QSAR_emp_abs_diff_df), " chemicals", sep = ""))
+
+# ggsave("figures/QSAR_comparison_HQ.png", QSAR_plot_HQ, dpi = 300)
+
+hist_abs_diff <- QSAR_emp_abs_diff_df %>%
+  ggplot(aes(x = log_abs_diff))+
+  geom_histogram() +
+  xlab("QSAR estimated to empirical data ratio") +
+  labs(tag = "b)") +
+  theme(panel.grid.major = element_blank(),
+        text = element_text(color = "black", family = "serif"), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"))
+  
+
+grid.arrange(QSAR_plot_HQ, hist_abs_diff, ncol=2)
+```
+
+*Quantitative structure-activity relationships:*  
+Complementing toxicological testing of animals with *in silico* simulations to derive quantitative structure-activity relationship estimates for chemical toxicity is a desirable approach for improving our understanding of the full range of impacts caused by anthropogenic activities. This as toxicological tests of chemicals are time consuming and expensive, while new chemicals are constantly introduced. Moreover, ethical aspects of exposing animals to potentially harmful chemicals also need to be considered. These QSAR models, however, are only as good as the training data and results from the current work show that when applying fifteen different QSAR models to the HESTIA inventory chemicals, many are too dissimilar to the models' training datasets and either fail to generate estimations or are deemed as low-quality estimations. 
+ - "Models are outside of their applicability domain :)"  
+Even more worrisome is that estimations of experimental, good and moderate quality are still not providing HC20-values within a reasonable error margin. When comparing QSAR HC20-values with HC20-values based on empirical data across `r nrow(QSAR_emp_abs_diff_df)` chemicals, the estimated HC20-values deviate substantially from the corresponding HC20-values derived from empirical data with errors up to `r formatC(QSAR_emp_abs_diff_df[1,7], format = "e", digits = 2)` $PAF\text{ } m^3/kg_{bioavailable}$ at the largest extreme, while the median difference is `r round(median_diff_value[1,1], 2)` $PAF\text{ } m^3/kg_{bioavailable}$.  data and data for additional chemicals are available (e.g in the REACH dossier) and gathering of data for *any other* chemicals using OECD QSAR Toolbox could be a straightforward task, with the here available R-scripts adapted for reading and wrangling data structured as OECD QSAR Toolbox-output.

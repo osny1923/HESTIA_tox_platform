@@ -13,7 +13,7 @@ ui <- fluidPage(
   #shinythemes::themeSelector(), 
   theme = shinytheme("united"),
   titlePanel(
-    windowTitle = "Oskar's Tox Explorer!",
+    windowTitle = "Ecotox Explorer!",
     div(
       style = "background-color: green; padding: 10px;",
       tags$h1("Ecotoxicity Data Explorer", style = "color: #333333;")
@@ -41,11 +41,11 @@ ui <- fluidPage(
                  "Data summary of the nonlinear least squares model.",
                  dataTableOutput("outputNLSData", width = "auto"),
                  fluidRow(
-                   column(width = 6,
+                   column(width = 4,
                           br(), 
                           plotOutput("outputPlot", width = "100%", height = "600px")
                    ),
-                   column(width = 6,
+                   column(width = 4,
                           br(),
                           plotOutput("outputHist", width = "100%", height = "600px")
                    )
@@ -128,7 +128,7 @@ server <- function(input, output, session) {
   
   # Load the USETOX_adapted data set
   data <- reactive({
-    read.csv("data/HESTIA_envirotox_cfs.csv") %>% 
+    read.csv("data/HESTIA_cfs.csv") %>% 
       select(-definition)
   })
   # Load the NLS_output dataframe
@@ -271,11 +271,10 @@ server <- function(input, output, session) {
   
 ### SSD plots ### -------------------------------------------------
   # Read the NLS dataset
-  valid_SSD_dataset <- read.csv("data/nls_output_df.csv") %>% filter(status == "Convergence") %>% pull(CAS.Number)
-  
+  valid_SSD_dataset <- read.csv("data/nls_output_df.csv") %>% filter(status %in% c("Convergence", "Data insufficient")) %>% pull(CAS.Number)
+
   SSDdata <- reactive({
- read.csv("data/FINAL_HESTIA_BASE_EnviroTox_FILL.csv") %>% 
-      filter(CAS.Number %in% valid_SSD_dataset)
+    read.csv("data/FINAL_HESTIA.csv") %>% filter(CAS.Number %in% valid_SSD_dataset)
     })
   
   # # Update the CAS Number column choices
@@ -295,7 +294,7 @@ server <- function(input, output, session) {
     updateSelectInput(session, "casNumberInput", choices = SSDdata() %>% distinct(CAS.Number) %>% pull(CAS.Number))
   })
   
-  # Render the NLS output data table
+  # Render the NLS results output data table
   output$outputNLSData <- renderDataTable({
     # index the datatable object
     dat_list <- outputData()[[1]]
@@ -320,7 +319,7 @@ server <- function(input, output, session) {
     pageLength = 3000,
     columnDefs = list(
       list(
-        targets = c(10,15:17),
+        targets = c(8,13:15),
         render = JS(
           "function(data, type, row, meta) {",
           "if (type === 'display' || type === 'filter') {",
@@ -335,7 +334,7 @@ server <- function(input, output, session) {
           "}")
       ),
       list(
-        targets = 19,
+        targets = 17,
         render = JS(
           "function(data, type, row, meta) {",
           "return type === 'display' && data.length > 10 ?",
@@ -352,12 +351,14 @@ server <- function(input, output, session) {
     
   })
   
-  # Render the output plot
+  # Render the output histogram
   output$outputHist <- renderPlot({
     req(input$casNumberInput, input$hcInput, input$MC_n)
     # index the ggplot object
     hist_dat <- outputData()[[1]]
-    hist(hist_dat$HCx_vec[[1]], main = paste("Histogram of Monte Carlo HC", hist_dat$Resp_lvl, "EC10eq-values. ", input$MC_n/1000, "K iterations", sep = ""))
+    hist(hist_dat$HCx_vec[[1]], 
+         main = paste("Histogram of Monte Carlo HC", hist_dat$Resp_lvl, "EC10eq-values. ", input$MC_n/1000, "K iterations", sep = ""), 
+         xlab = "Simulated HC20EC10eq value. log(mg/L)")
     })
   
   # Downloadable csv of selected dataset ----

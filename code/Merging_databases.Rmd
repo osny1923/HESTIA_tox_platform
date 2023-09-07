@@ -11,7 +11,11 @@ knitr::opts_chunk$set(echo = TRUE)
   library(readxl)
 ```
 
-# Merging HESTIA Tox DB with the EnviroTox DB.
+
+## Reading source code from the "HESTIA_HC20_DB.Rmd"-document is required to make the following code functional.
+
+
+## Merging HESTIA Tox DB with the EnviroTox DB.
 The code below adds Envirotox "on top of" the HESTIA DB, Prioritizing HESTIA CASRN and Species, while adding CAS and species' unique to the Envirotox DB.
 
 ```{r Envirotox}
@@ -41,7 +45,7 @@ EnviroTox_Q_dat <- rbind(
   select(common_name_elements)
 
 # Adjusting the content of the HESTIA database
-HESTIA_BASE_dat <- "../results/HESTIA_EC10eq_DB.csv" %>% 
+HESTIA_BASE_dat <- read.csv("../results/HESTIA_EC10eq_DB.csv") %>% 
   rename(Medium = Media.type) %>% 
   unite(Source, c("Title", "Author", "Year", "Reference.source", "URL", "DOI"), sep = ";", na.rm = TRUE) %>% 
   select(common_name_elements)
@@ -85,7 +89,7 @@ write.csv(HESTIA_HC20_dataset, "../results/HESTIA_HC20_dataset.csv", row.names =
 ```
 
 ## Running the weighted uncertainty model
-```{r}
+```{r nlsModel, warning=FALSE, message=FALSE}
 # Dataset to analyze is object `HESTIA_BASE_EnviroTox_FILL`
 
 # load the nls function
@@ -198,3 +202,73 @@ USEtox.internal.identification.number = rep(NA, nrow(HESTIA_envirotox_cfs))
 write.csv(USEtox_input, "../results/HESTIA_HC20_dataset_USEtox_format.csv", row.names = F)
 
 ```
+
+## Introduction
+```{r}
+# EnviroTox_DB <- readxl::read_xlsx(
+#   path = "data/Envirotox_2023-01-10/envirotox_DB.xlsx", sheet = "test", col_names = T, col_types = c(
+#     "skip", rep("text", times = 4), "guess", rep("text", times = 4), "guess", "guess", "logical", rep("text", times = 3), "numeric") ) %>% 
+#   rename(
+#    Endpoint = `Test statistic`,
+#    AcuteChronic= `Test type`,
+#    Species = `Latin name`,
+#    Value.mg_l = `Effect value`,
+#    Time.Hours = `Duration (hours)`) %>% 
+#   mutate(
+#     DB = "EnviroTox",
+#     CAS.Number = as.cas(`original CAS`),
+#     AcuteChronic = case_when(
+#       AcuteChronic == "A" ~ "Acute",
+#       TRUE ~ "Chronic"))
+```
+
+Additional data are sourced from EnviroTox, a curated ecotoxicological database for `r nrow(EnviroTox_DB %>% distinct(CAS.Number))` substances [@connors_2019].
+
+## Methods
+
+### Including additional data sources
+We merge the curated ecotoxicological effect dataset with selected (non-overlapping) records from the EnviroTox toxicological database. The EnviroTox toxicological database by Connors et al., [-@connors_2019] is a curated aquatic toxicological database containing a large set of toxicological data from a broad range of potentially toxic substances. Prior to merging the two databases, curation of the EnviroTox database was performed accordingly:  
+Toxicological endpoints were selected and grouped as for HESTIA database (Table STX), Acute and Chronic test duration definitions were performed according to taxonomic group and duration of experiment. The EnviroTox team have thoroughly refined acute/chronic exposure selection methodology yet for the current purpose we chose to categorize acute/chronic definitions in a harmonized way according to the methodology described above. Taxonomic information from the EnviroTox database was slightly revised to match the HESTIA dataset (e.g minor spelling corrections). With harmonized acute/chronic definitions, identical taxonomic descriptions and endpoint conversions, extrapolation factors for EC10eq conversions were added to effect data as for the original dataset. Lastly, records with duplicates across all rows were removed. Data sources overlap across the HESTIA and EnviroTox datasets, and records are selected from EnviroTox when 1) all records with CASRN unique to EnviroTox, and 2) records where species, but not CASRN, are unique to EnviroTox, for details, see SI 4. 
+
+```{r}
+# Merging all physchem & subst. use-type annotations 
+FULL_PHYSCHEM <- rbind(
+  NEW_PHYSCHEM,
+  read.csv("data/excel_references/Envirotox_physchem.csv") %>% 
+    # managed to get some duplicates in here. Could fix by redoing physchem query at OECD QSAR Toolbox in Envirotox wrangle, but also just down-prioritize (filter out) those duplicates here.
+    filter(!CAS.Number %in% NEW_PHYSCHEM$CAS.Number))
+```
+
+## Results
+As a result of selecting records unique to the Envirotox database and curating the data as previously described, `r nrow(HESTIA_BASE_EnviroTox_FILL %>% filter(DB == "EnviroTox"))` records are added to the final dataset, summarized in Table \@ref(tab:Envirotox).  
+
+```{r Envirotox}
+# Make sure to be able to reference to this output!!
+Envirotox_summary_table <- flextable(HESTIA_BASE_EnviroTox_FILL %>%
+  filter(DB == "EnviroTox") %>% 
+  group_by(Taxonomy.Group, Endpoint_conv, AcuteChronic) %>% 
+  summarise(n = n()) %>% 
+  pivot_wider(names_from = c(Endpoint_conv, AcuteChronic), values_from = n) %>% 
+  mutate(Sum_Species = sum(across(contains("_")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  bind_rows(summarise(
+    .,
+    across(where(is.numeric), ~sum(., na.rm = T)),
+    across(where(is.character), ~as.character("Total") ))))
+
+Envirotox_summary_table %>% 
+  set_caption("Number of records from EnviroTox dataset joined to HESTIA by taxonomic group and endpoint.") %>% 
+  fontsize(., size = 10, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
+  flextable::set_header_labels(
+    Taxonomy.Group = "Taxonomy group", 
+    EC10_Chronic = "EC10 chronic",  
+    EC50_Chronic = "EC50 chronic",  
+    NOEC_Chronic = "NOEC chronic",  
+    EC10_Acute = "EC10 acute",  
+    EC50_Acute = "EC50 acute",  
+    NOEC_Acute = "NOEC acute",  
+    Sum_Species = "Total per taxa") 
+
+```
+

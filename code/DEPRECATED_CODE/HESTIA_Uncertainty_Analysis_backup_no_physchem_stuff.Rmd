@@ -1,0 +1,615 @@
+---
+title: "Title"
+author: "Oskar Nyberg"
+date: "`r Sys.Date()`"
+output:
+  bookdown::word_document2:
+    number_sections: no
+  bookdown::html_document2:
+    number_sections: no
+    includes:
+      in_header: my_styles.css
+always_allow_html: yes
+bibliography: references.bib
+---
+```{r setup, echo = FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(message = F, warning = F, echo = F)
+# These libraries are used for analysis
+  #install.packages("bookdown")    
+  #install.packages("flextable")    
+  #install.packages("ggforce")
+  library(rmarkdown)
+  library(bookdown)
+  library(flextable)
+  library(tidyverse)
+  library(webchem)
+  library(taxize)
+  library(kableExtra)
+  library(gridExtra)
+  #library(htmltools)
+  #library(htmlwidgets)
+  library(ggforce)
+
+```
+
+```{css}
+.math {
+  font-size: small;
+}
+```
+
+
+```{r}
+# Load the final database
+HESTIA_BASE_dat <- read.csv("results/FINAL_HESTIA.csv")
+
+# Physchem wrangle function
+source("code/Physchem_read_wrangle_function.R")
+# Processing and wrangling the raw data through function loaded above
+Physchem_HESTIA <- Physchem_read_wrangle_function(read.csv("data/QSAR_Toolbox_physchem_data_2023-07-11_RAW.csv", header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE))
+
+# Loading the slim version of the Pesticide annotations data for substance use properties and merge this here.
+HESTIA_chem_list_slim <- read.csv("results/HESTIA_chem_list_slim.csv")
+
+HESTIA_chem_prop_list_full <- read.csv("results/HESTIA_chem_prop_list_full.csv")
+
+FULL_PHYSCHEM <- left_join(
+  x = Physchem_HESTIA, 
+  y = HESTIA_chem_list_slim, 
+  by = "CAS.Number"
+) %>% 
+  select(CAS.Number, CanonicalSMILES, PesticideAI_name, 2:31)
+
+HESTIA_HC20_dataset <- read.csv("results/HESTIA_HC20_dataset.csv")
+
+source("code/HC50_calculation_function.R")
+
+# Attaching the Physchem data to HESTIA dataset and outputting a df with HC50 data
+HESTIA_HC50_calc <- HC50_calc_function(HESTIA_BASE_dat %>% left_join(x = ., y = FULL_PHYSCHEM, by = "CAS.Number"))
+
+nls_output_df <- read.csv("results/nls_output_df.csv")
+
+```
+
+Oskar Nyberg$^{1,\dagger}$, Reinout Heijungs$^{2,3}$, Patrik Henriksson$^{4,5,6}$
+
+\vspace{20mm}
+${^1}$ Department of Ecology, Environment and Plant Sciences, Stockholm University, Stockholm, Sweden
+${^2}$ Department of Operations Analytics, Vrije Universiteit, Amsterdam, The Netherlands  
+${^3}$ Institute of Environmental Sciences, Leiden University, Leiden, The Netherlands  
+${^4}$ Stockholm Resilience Centre, Stockholm, Sweden  
+${^5}$ WorldFish, Jalan Batu Maung, Penang, Malaysia  
+${^6}$ Beijer Institute of Ecological Economics, The Royal Swedish Academy of Science, Stockholm, Sweden  
+
+${\dagger}$ Corresponding author:[oskar.nyberg@su.se](mailto:oskar.nyberg@su.se)
+
+### tentative titles:  
+
+ - Data collection and uncertainty analysis of toxicological effect data used in life cycle assessment 
+ - Toxicological effect data variation and probabilistic distributions of the log(HC20EC10eq) point.
+ - A nonlinear approach to estimate variability of point.
+ 
+\newpage
+## Abstract {-}   
+*Introduction:*
+The agriculture sector is a major emitter of toxic chemicals into the environment through extensive use of pesticides. However, the ecotoxicological effect data which forms the basis of evaluations of ecological impacts from chemical emissions are incomplete, and completely missing for some chemicals, which result in risks being overlooked. Where data are available, they tend to be notoriously heterogeneous and accompanied with large uncertainties. In the present research we present a methodology for quantifying the variability and uncertainty of agri-food chemicals and evaluate its implications for environmental assessment frameworks, such as life cycle assessments (LCA).    
+
+*Methods:*
+Starting from a list of 16797 chemicals from the online agri-food environmental framework HESTIA, we assigned ecotoxicological effect data at NOEC, EC10, and EC50 endpoints from the following repositories: `r knitr::combine_words(HESTIA_BASE_dat %>% distinct(Database) %>% pull(Database))`. These data were converted into EC10 equivalent endpoints using regression coefficients from the literature, which allowed us to calculate the concentration response slope factors corresponding to the slope on the SSD curve at the 20% response level of organisms exposed to a chemical ($CRF_{HC20}$). In turn, we fit effect data to nonlinear least square models, assuming lognormal distribution of the data, to estimate $\mu$ and $\sigma$ of the $CRF_{HC20}$. The modelled $\mu$ and $\sigma$ are used to fit a normal distribution for 100,000 Monte Carlo simulations from which the 95% percentile distribution for the $CRF_{HC20}$ can be extracted.  
+
+*Results:*
+The outcome from out analysis resulted in a database detailing `r nrow(HESTIA_BASE_dat)` curated records using recommended methodology, spanning `r nrow(HESTIA_BASE_dat %>% distinct(Species))` species and `r nrow(HESTIA_BASE_dat %>% distinct(CAS.Number))` chemicals suitable for $CRF_{HC20}$. From these we are able are able to calculate $CRF_{HC20}$ values and 95% percentile distributions of the $CRF_{HC20}$ for `r nrow(HESTIA_HC20_dataset %>% filter(!is.na(HC20EC10eq)))` and `r nrow(nls_output_df %>% filter(status %in% c("Convergence", "Data inufficient")))` chemicals respectively. Pesticides were the most data rich category of chemicals, but also the category with largest uncertainty attached to the $CRF_{HC20}$.  
+
+*Discussion:*
+We show that the variance among toxicity estimates for the same species and chemical can be used to "decorate" an EC10eq value with a standard deviation, and, through a nonlinear fitting method generate a $CRF_{HC20}$ value along with an uncertainty range. This allows environmental frameworks to generate HC20 data including uncertainties. Data scarcity is an omnipresent issue when it comes to SSD curve construction, and only `r round(nrow(HESTIA_HC20_dataset %>% filter(!is.na(HC20EC10eq)))/nrow(HESTIA_HC20_dataset)*100, 1)` % of all chemicals with effect data records have enough data to generate a $CRF_{HC20}$ value, and `r round(nrow(nls_output_df %>% filter(status == "Convergence"))/nrow(nls_output_df)*100, 1)` % have enough data to fit a nonlinear least squares model. 
+Our recommendation is to incorporate toxicological variance in estimations of ecotoxicity impacts and LCIA impact categories, to reduce ambiguity and verify ecotoxicological impact assessment.
+
+
+\newpage
+
+## Introduction{-}  
+
+Increasing chemical use is a major concern for operating within the safe space of planetary boundaries, and agriculture is a major driving force behind this increase, through pesticide use, veterinarian drugs, and disinfectants [@gordon2017rewiring; @persson2022outside]. Chemical use in agriculture is also expected to continue to increase in the coming decade, as a result of larger production volumes and more intensive production systems [@schreinemachers2012]. The agrifood sector is a major emitter of potentially toxic chemicals [@persson2022outside], mainly in terms of pesticides with an estimated annual release of close to 3 million metric tonnes [@faoPesticides]. However, data on which potentially toxic chemicals are used for different farming systems, toxicity evaluations for different compounds, and variability in toxicity potentials are incomplete and fragmented, hampering accurate global comparisons of ecotoxicity impacts of different food products [@van2020towards]. While the majority of pesticides emitted are biodegraded, a fraction of pesticides does reach rivers and water catchments where they degrade at a slower rate, with potential to bioaccumulate in aquatic organisms [@maggi2023agricultural]. Accurate toxicological characterization of chemicals is essential for ensuring the safety of human health and the environment, where proper toxicological characterization involves identifying and evaluating the potential adverse effects of chemicals, determining the level of exposure that is safe for humans and the environment, and assessing the risk posed by exposure to chemicals [@krewski2010]. Regrettably, none of the available life cycle impact assessment (LCIA) methodologies contain a complete set of characterization factors (CFs) for pesticides and therapeutants, which often leads to neglecting or inserting of a proxy value [@nemecek2022operationalising].
+
+Life cycle assessment (LCA) have increasingly been used as a complementing framework to benchmark toxicological impacts of agrifood products. LCA is an ISO-standardized environmental framework that seeks to aggregate the emissions and resource use throughout a value chain, and characterize these towards one or more environmental impact categories. The results are subsequently scaled to a predefined unit of reference (functional unit), to allow for comparisons between products (e.g. per of kg food), functions (e.g. per kcal), or services (e.g. per washing of a plate). It is most commonly encountered as the methodology behind carbon footprints, but is also used to quantify freshwater consumption, land occupation, eutrophication, biodiversity loss, or toxicity impacts [@hauschild2015]. Toxicity impacts, in turn, are commonly evaluated in terms of human toxicity, either including or excluding cancer cases, and ecotoxicity impacts on freshwater, marine, or terrestrial ecosystems [@hauschild2015].
+
+LCA can capture toxicological impacts throughout whole value chains, from mercury emissions from coal-fired power plants to therapeutants used in aquaculture ponds. LCAs can thereby provide useful insights into where in value chains the largest toxicity reductions can be achieved, such as that most freshwater ecotoxicological impacts related with prawn farming in Bangladesh are related to the production certain agricultural materials used for feeds, and not the prawn grow-out [@henriksson2015]. To assess ecotoxicological impacts throughout the value chain of a product, ecotoxicological characterization factors for chemicals are used to evaluate potential impact of different chemicals in the LCIA phase of an LCA. Toxicological effect data for chemicals provide, together with data on fate and exposure, the basis for characterization factor calculations within LCA. These data, however, are notoriously heterogeneous since they are reported across thousands of tested species at variable concentrations, measured effects, and at various empirical or modeled endpoints, resulting in large uncertainty and variability (which we will from here on simply refer to as "uncertainty") in CF calculations.
+
+The evaluation of toxicological impacts in LCA is limited by the number of chemical compounds characterized by impact assessment methodologies. The CF is the value used to translate the amounts of chemicals used to its potential toxicological impact. There are several different impact assessment methodologies to derive these characterization factors, including USES-LCA v1&2 [@huijbregts2000; @vanZelm2009], IMPACT 2002 [@pennington2005], and UNEP-SETAC’s USEtox [@Fantke_2017], but ultimately, they all rely on fundamental data on toxicity and physicochemical properties. Among these impact assessment methodologies, the USEtox model is most widely used at present, and also the one promoted by the European Platform on Life Cycle Assessment (ILCD, 2010). 
+The USEtox framework is used to generate freshwater aquatic ecotoxicity potential CFs by providing models for environmental distribution and fate, ecosystem population exposure, and toxicological effects to populations being exposed to chemicals [@Fantke_2017]. The present study is focusing on toxicological effect data that is used to generate an effect factor (EF) in the latter model. The EF is defined by the the concentration-response slope factor ($CRF_{HC20}$), which corresponds to the slope on a species sensitivity distribution curve (SSD) at the point of the $20^{th}$ percentile response level (HC20) derived from toxicological EC10-equivalent ($EC10^{eq}$) effect data. Each toxicological data point used to construct an SSD curve is an estimated toxicological response of an organism from exposure to a chemical. However, there is variability in the toxicity estimates for every chemical, for the same species. Additionally, depending on the number of data, which type of chemical, a specific toxic mode of action, and which organisms that are tested will affect the uncertainty of the HC20 value of the SSD curve. When applying the current methodology to derive the HC20 value from an SSD curve, variability of these toxicity data are not accounted for. To investigate the uncertainties attached to $CRF_{HC20}$ values we propose a method for applying weighted means to species-specific $EC10^{eq}$ averages when constructing SSD curves by applying a non-linear least squares fit model to a cumulative normal distribution of $EC10^{eq}$ data. The estimated $\mu$ and $\sigma$ can subsequently be used for Monte Carlo simulations of a normal distribution of data in the $CRF_{HC20}$ from which a 95% percentile distribution will inform on the probabilistic uncertainty at this data point.     
+
+In order to test our method, we gather a large set of ecotoxicological effect data using the OECD QSAR Toolbox [@dimitrov2016qsar] across 16797 chemicals included in the HESTIA inventory (https://www.hestia.earth). HESTIA a free open-access platform that provides a data repository for life cycle inventory (LCI) data using a harmonized schema and glossary of terms, and provide calculation models for various emissions and impact assessments. The ambition of HESTIA is to make environmental benchmarks of agrifood commodities more accessible and transparent, by providing a free harmonized framework. 
+
+The objective of this article is to 1) gather freely available ecotoxicological records for chemicals present in the HESTIA inventory and curate these records into a database adapted for EF calculations, 2) calculate $CRF_{HC20}$ values according to recommendations for all chemicals possible within the database, 3) present a methodological approach that can estimate the probabilistic distribution of the $CRF_{HC20}$ value as 95% percentile distribution, and lastly 4) report statistical uncertainty at the $CRF_{HC20}$ value as a geometric standard deviation for as many chemicals possible in the database. 
+
+## Methods{-}  
+### HESTIA data collection {-}
+The starting point for collection of ecotoxicological effect data suitable for $CRF_{HC20}$ calculations is the substance inventory of HESTIA ([http://HESTIA.earth](http://hestia.earth)); a list of 16,797 CAS registry numbers (CASRN) and matching chemical names of potentially harmful substances. First, SMILES configurations were matched against CASRN and chemical names by querying the NCBI PubChem database using the R package Webchem [@Webchem_2020] (SI 1.2). Then, two data queries were made based on the CASRN-SMILES matches to OECD QSAR Toolbox v4.5 [@dimitrov2016qsar] for: a) physicochemical properties required by the USEtox model (SI 2.1), and b) all openly available aquatic ecotoxicological records accessible through the software (SI 2.2).  
+Next, chemicals use-classification information is gathered (i.e., Pesticide, Antibiotic, Agrochemical etc.) from USEPA CompTox v2.2 (https://comptox.epa.gov/dashboard/, accessed 2023-01-20), USEPA ECOTOX database (downloaded in its entirety 2022-03-10), The British Compendium of Pesticide Common Names (http://www.bcpcpesticidecompendium.org/, accessed 2022-10-13), The Chemical Entities of Biological Interest (ChEBI) database (https://www.ebi.ac.uk/chebi/init.do; accessed 2023-01-18), The Anatomical Therapeutic Chemical (ATC) Classification System (https://www.whocc.no/), 
+followed by substance type classification into the following chemical groups: `r knitr::combine_words(HESTIA_chem_list_slim %>% distinct(Substance_type) %>% pull(Substance_type))` (SI 3.1).  
+Then, taxonomic information attached to effect data was updated for current taxonomic classification, common names were converted into Latin names, and spelling errors were corrected (SI 3.2).
+For the process of selecting reliable ecotoxicological effect data for $CRF_{HC20}$ calculations, we perform the following steps summarized in Figure \@ref(fig:fig1):  
+1) adjust test concentrations reported as a range, following the methodology suggested by Saouter et al., [-@saouter_2019-1]; 2) removing data based on QSAR estimations or *in vivo* effect based tests by excluding records containing the strings "QSAR", "bioassay", "quantitative" in the title, and the strings "QSAR" and "bioassay" in the experimental design description. Additionally, records were removed if control type were described as "Insufficient" or "Unsatisfactory"; 3) selecting freshwater and culture media records only; 4) selecting records with biological effect (or effect criterions) relevant for ecological impacts; 5) remove records missing species taxonomic information; 6) harmonizing effect concentrations and effect concentration units into $mg\text{ }l^{-1}$; and 7) Remove records where test duration is <24 h or missing.  
+With a reliable set of ecotoxicological data, acute or chronic definitions can be assigned to records based on test duration and taxonomic group. 
+
+Lastly, effect data from multiple endpoints are combined and converted to $EC10^{eq}$ endpoint according to recommendations (Owsianiak et al., [-@owsianiak2019]). EC10, EL10, IC10, LC10, LOEC are combined into “EC10”, EC50, EL50, IC50, LC50 are combined into “EC50”, and EC0, LC0, NOAEC, NOEC, NOER, NOEL are combined into “NOEC”. Endpoint conversion using regression coefficients are applied for converting acute EC50, acute NOEC, chronic EC50, and chronic NOEC into chronic into chronic $EC10^{eq}$ respectively using the suggested regression coefficients from [@aurisano_2019]. Admittedly, this will group endpoints that are measured differently, for instance EC0 corresponds to the measured concentration of a chemical at which there is no detectable effect, while NOEC corresponds to the highest measured concentration at which no statistically significant effects are observed compared to a control population. 
+Detailed descriptions for each step of data collection and curation procedures is provided in supplementary information (SI).
+
+### Exploring weighted means of averages and uncertainty through nonlinear least square fit modeling{-}
+Based on the assumption of lognormal distribution of ecotoxicological effect data, we investigate the uncertainties of the $CRF_{HC20}$ value by fitting all records per substance to a nonlinear least squares model to explore $\mu$ and $\sigma$ at the 20% response level on the SSD curve. First, we define the raw data. For a specific substance $x$, we have $EC10^{eq}$ data for species $i$, done in a number of experiments, labeled as $k = 1,…,n_i$. The data are thus indicated as $EC10_{i,k}^{eq}$, Throughout the analysis, we will work with the logarithm of the data, and for conciseness the data are indicated as $L_{(i,k)}$, thus:
+
+\begin{equation}
+L_{i,k} = log(EC10_{i,k}^{eq}) 
+(\#eq:eq1)
+\end{equation}
+
+The per-species average over all samples are found as:  
+
+\begin{equation}
+M_{i} = \frac{1}{n_{i}}\sum_{k=1}^{n_{i}}L_{i,k}
+(\#eq:eq2)
+\end{equation}
+
+and the corresponding standard deviation as:
+
+\begin{equation}
+S_{i} = \sqrt{\frac{1}{n_{i}-1}\sum_{k=1}^{n_{i}}(L_{i,k}-M_{i})^2}
+(\#eq:eq3)
+\end{equation}
+
+The average values $M_i$ have a standard error $E_i$ that is given by:
+
+\begin{equation}
+E_{i} = \frac{s_{i}}{\sqrt{{n_{i}}}} = \sqrt{\frac{1}{n_{i}(n_{i}-1)}\sum_{k=1}^{n_{i}}(L_{i,k}-M_{i})^2}
+(\#eq:eq4)
+\end{equation}
+
+Next, we make the assumption that species sensitivity follows a lognormal distribution in agreement with -@posthuma_2019. From this distribution of the $M_i$-values, which is characterized by two parameters, the mean ($\mu$) and the standard deviation ($\sigma$), that are traditionally estimated as follows:
+
+\begin{equation}
+\hat{\mu} = \frac{1}{m}\sum_{i=1}^{m}M_{i}(\#eq:eq5)
+\end{equation}
+
+\begin{equation}
+\hat{\sigma} = \sqrt{\frac{1}{(m-1)}\sum_{i=1}^{m}(M_{i}-\hat{\mu})^2}(\#eq:eq6)
+\end{equation}
+
+Also, the $log(HC20_{EC10^{eq}})$ is found as the 20-percentile value of the distribution:
+
+\begin{equation}
+log(HC20_{EC10^{eq}}) = \hat{\mu} + z_{0.2}\hat{\sigma}
+(\#eq:eq7)
+\end{equation}
+
+where $z_{0.2}$ is the inverse of the standard normal distribution, which approximates -0.84.  
+The $CRF_{HC20}$ value is then derived from the $log(HC20_{EC10^{eq}})$ by finding the slope of the SSD curve at the $20^{th}$ percentile response level:
+
+\begin{equation}
+CRF_{HC20} = \frac{0.2}{10^{log(HC20_{EC10^{eq}})}}
+(\#eq:eq8)
+\end{equation}
+
+The uncertainty of this estimate basically depends on two elements: the uncertainty in $\hat\mu$ and the uncertainty in $\hat\sigma$. Both of these depend on the degree of fit with the normal distribution, and with the intra-species variation. Our approach will be to fit a normal distribution to the vector of mean values $M_{i}$, weighted with the reciprocal of the variance, $(\frac{1}{E_{i}})^2$.
+Suppose we fit a function ${F(x;\mu,\sigma)}$ to the cumulative distribution of $M_{i}$-values, each of which is associated with a standard error $E_{i}$. We can find the optimal values of $\mu$ and $\sigma$ through a least-squares minimization of the residual:
+
+
+\begin{equation}
+min\left (\sum_{i=1}^{m}\frac{1}{E_{i}^{2}}(y_{i}-F(m_{i};\mu,\sigma))^{2} \right)
+(\#eq:eq9)
+\end{equation}
+
+Here, $y_{i}$ denotes the order of appearance in the cumulative form. More precisely,
+
+\begin{equation}
+y_{i}=\frac{rank(M_{i}-0.5)}{m}
+(\#eq:eq10)
+\end{equation}
+
+For F, we take the cumulative normal distribution, given by
+
+\begin{equation}
+F(m_{i};\mu,\sigma) = \frac{1}{2}+\frac{1}{2}erf\left( \frac{x-\mu}{\sigma\sqrt{2}} \right)
+(\#eq:eq11)
+\end{equation}
+
+To model estimates for $\hat\mu$ and $\hat\sigma$, we fit a nonlinear least-squares model (nls) to the toxicological dose-response data using R-programming language. By assuming a cumulative normal distribution for the data (Eq. 11) and defining a self-starting function for the cumulative normal distribution to start solving for the least squares residual of $\mu$ and $\sigma$, programming in R allow the use of the `nls()`function for this purpose. Starting points for the model are defined as $\mu_{start} = \frac{1}{m}\sum_{i=1}^{m}M_{i}$ and $\sigma_{start} = \frac{1}{m}\sum_{i=1}^{m}S_{i}$ respectively. In cases where only one toxicological record per species is available, $\sigma_{start}$ is not obtainable, thus an arbitrary value of $\sigma_{start} = 1$ is used. If there are sufficient records for each chemical, the function models the $\hat{\mu}$ (Eq. 5) and $\hat{\sigma}$ (Eq. 6) for each chemical, based of the $M_{i}$ and $S_{i}$ per species. We then calculate the $log(HC20_{EC10^{eq}})$ using weighted means for each chemical (Eq. 7) as well as extracting the value in the 0.2 quantile of the model results.  
+
+To calculate the variability in the $CRF_{HC20}$, we extract $\hat{\mu}$ and $E_{i}$ from the model results and fit data to a normal distribution using Monte Carlo simulations with 100,000 iterations to populate vectors with simulated $\mu$ and $\sigma$ at the 20% percentile level respectively. These vectors are then used to calculate 100,000 $log(HC20_{EC10^{eq}})$ values, from which we subsequently derive the $CRF_{HC20}$ (Eq. 8). By selecting the 2.5 and the 97.5 quantiles, the 95% probability distribution within the $CRF_{HC20}$ value is extracted. Since the $CRF_{HC20}$ is no longer expressed as logarithmic data, we can enable a comparison of uncertainties across multiple chemicals with the geometric standard deviation for each probability distributions of the $CRF_{HC20}$ value, calculated using the "GeoSD" function in the R package EnvStats [@millard2013r]. 
+
+The calculations above are run for all chemicals with effect data available for >1 species, and data are flagged as "insufficient" when SSDs are based on <5 species across <3 taxonomic groups, because of three reasons: 1) the USEtox v2.0 manual requires data from three taxonomic groups, van Zelm et al., [-@van2007uncertainty] points out that uncertainties increase dramatically when the ecotoxicological is calculated using <4 species, and Owsianiak et al., [-@owsianiak2019] points out that at least five species are required for deriving SSDs, to ensure that the HC20 point is not extrapolated below any species' $EC10^{eq}$.
+
+### Data availability in the HESTIA Ecotox Explorer: 
+The script detailed above can generate a summary of the model results, creates a plot of the dose-response curve for each chemical, histogram over the Monte Carlo result's data distribution, and a table containing the underlying data available for download.  
+
+### Software used
+OECD QSAR Toolbox v.4.5 was used for collecting ecotoxicological data and physicochemical data, `r version$version.string` has been used for data collection, curation and visualization, text and data was published using Pandoc v. `r rmarkdown::pandoc_version()`, and Shiny R package version 1.7.4.9002 was used to construct the interactive web-based uncertainty explorer [@shiny].  
+
+```{r pkgs}
+pkgs <- sessioninfo::package_info(pkgs = "attached", dependencies = FALSE)
+pkgtbl <- tibble(
+  package = pkgs$package,
+  version = pkgs$ondiskversion,
+  source = gsub("@", "\\\\@", pkgs$source)
+)
+pkgtbl_for_suppmat <- flextable(pkgtbl)%>% 
+  set_table_properties(layout = "autofit") %>% 
+  flextable::fontsize(., size = 9, part = "all")
+
+```
+
+## Results{-}  
+
+By gathering ecotoxicological effect data for `r nrow(HESTIA_BASE_dat %>% distinct(CAS.Number))` chemicals from querying the `r knitr::combine_words(HESTIA_BASE_dat %>% distinct(Database) %>% pull(Database))` databases using OECD QSAR Toolbox software, we have been able to calculate the $CRF_{HC20}$ for `r nrow(HESTIA_HC20_dataset %>% filter(!is.na(HC20)))` chemicals using chronic EC10 equivalents as the underlying effect data, as recommended by Owsianiak et al., [-@owsianiak2019]. Variability in the $CRF_{HC20}$ value can be assessed for `r nrow(nls_output_df %>%  filter(status %in% c("Convergence", "Data insufficient")))` chemicals, while $CRF_{HC20}$ values for `r nrow(read.csv("results/HESTIA_HC20_dataset.csv") %>% filter(!is.na(HC20)))` chemicals have been calculated according to Eq. 1-8, i.e the methodology of Owsianiak et al. [-@owsianiak_2022].
+
+The curated dataset contain toxicological data with `r nrow(HESTIA_BASE_dat %>% filter(DB == "HESTIA"))` records across `r nrow(HESTIA_BASE_dat %>% distinct(Species))` species (Table \@ref(tab:Qdat-summary)), adapted for freshwater aquatic ecotoxicological potential (e.g. ecotoxicological effect factor) calculations of the $CRF_{HC20}$ value. An overview of the dataset curation process is presented in Figure \@ref(fig:fig1).  
+
+```{r fig1, results='asis', fig.cap = "Overview of the data curation process from respective number of records per database, stepwise removal of records, and the counts of acute or chronic records per endpoint in the 'validated data'-category. Data removal occured in the following steps: 1) Data reported as a range, 2) Controls insufficient or unsatisfactory, 3) Non-fresh water data, 4) Effect criterions irrelevant, 5) Poor taxonomic descriptions, 6) Effect unit/value missing or '0', 7) Test duration missing or < 24h", fig.height=0.1, fig.width=0.1}
+# conditionally insert the NetworkD3 object if the document is knitted. 
+if(knitr::is_html_output()){ 
+  cat('<iframe id="Wrangle_plot" src="code/Wrangle_plot.html" style="border:none; width:100%; height:500px;"></iframe>')
+  # Since the HTML object is not a figure, the caption and referencing does not work. Here we add a blank ggplot with defined height and width as 0.1. as a quick-fix.
+  ggplot()
+  # if this is not knitted as HTML, insert a screenshot of the NetworkD3-object as a graphic object.
+  } else knitr::include_graphics("figures/Wrangle_plot.png")
+```
+
+
+```{r Qdat-summary}
+# Make sure to be able to reference to this output!!
+flx_tbl <- flextable(HESTIA_BASE_dat %>%
+  filter(DB == "HESTIA") %>% 
+  group_by(Taxonomy.Group, Endpoint_conv, AcuteChronic) %>% 
+  summarise(n = n()) %>% 
+  pivot_wider(names_from = c(Endpoint_conv, AcuteChronic), values_from = n) %>% 
+  mutate(Sum_Species = sum(across(contains("_")), na.rm = TRUE)) %>%
+  ungroup() %>%
+  bind_rows(summarise(
+    .,
+    across(where(is.numeric), ~sum(., na.rm = T)),
+    across(where(is.character), ~as.character("Total") )))
+  )
+
+flx_tbl %>%  
+  set_caption("Number of records found in the HESTIA Environmental Toxicology dataset by taxonomic group and endpoint") %>% 
+  flextable::fontsize(., size = 9, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
+  flextable::set_header_labels(
+    Taxonomy.Group = "Taxonomy group", 
+    EC10_Chronic = "EC10 chronic",  
+    EC50_Chronic = "EC50 chronic",  
+    NOEC_Chronic = "NOEC chronic",  
+    EC10_Acute = "EC10 acute",  
+    EC50_Acute = "EC50 acute",  
+    NOEC_Acute = "NOEC acute",  
+    Sum_Species = "Total per taxa")
+
+```
+
+
+```{r Group-summary}
+DB_overview <- HESTIA_BASE_dat %>% 
+ left_join(
+   x = ., 
+   y = FULL_PHYSCHEM, 
+   by = "CAS.Number") %>% 
+ group_by(Group) %>% 
+ summarise(
+   n_records = n(),
+   n_substances = n_distinct(CAS.Number)
+ ) %>%
+  bind_rows(summarise(
+    .,
+    across(where(is.numeric), ~sum(., na.rm = T)),
+    across(where(is.character), ~as.character("Total") )))
+```
+
+
+The HESTIA database construction was able to gather physicochemical properties required for freshwater aquatic toxicity potential characterization in the USEtox model for `r nrow(FULL_PHYSCHEM %>% filter(Group != "Unknown"))` chemicals. Additionally, toxicological records for the defined substance groups `r knitr::combine_words(DB_overview[1:6,] %>% pull(Group))` with `r knitr::combine_words(DB_overview[1:6,] %>% pull(n_records))` records, respectively across `r knitr::combine_words(DB_overview[1:8,] %>% pull(n_substances))` substances, respectively (Table \@ref(tab:Group-table)). This dataset allows for calculations of $CRF_{HC20}$ values for `r nrow(read.csv("results/HESTIA_HC20_dataset.csv") %>% filter(!is.na(HC20)))` chemicals according to Eq. 1-8, i.e the methodology in Owsianiak et al. [-@owsianiak_2022].  
+
+```{r Group-table}
+
+Group_table <- autofit(flextable(DB_overview))
+Group_table %>% 
+  set_caption("Number of toxicological use annotations identified for chemicals") %>% 
+  fontsize(., size = 9, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
+  flextable::set_header_labels(
+    Group = "Substance use category", 
+    n_records = "Number of records", 
+    n_substances = "Number of chemicals") 
+```
+
+For the final database, we calculate `r nrow(HESTIA_HC20_dataset %>% filter(!is.na(HC20)))` $CRF_{HC20}$ values out of `r nrow(HESTIA_HC20_dataset)` chemicals. Data are reported as a **shiny-application at website:X** to better inform environmental impact calculations for agrifood LCAs.     
+
+### Uncertainty estimations
+When taking the weighted means approach and fit a nonlinear least-squares model to the database, `r nrow(nls_output_df %>% filter(status == "Convergence"))` chemicals have enough data to calculate $HC20_{weighted}$. Data availability is a major issue here, since only `r round((nrow(nls_output_df %>% filter(status == "Convergence"))/nrow(nls_output_df))*100, 1)`% of all chemicals have enough data to fit the nonlinear least squares model (Table \@ref(tab:Summary-nls-table)).  
+
+```{r Summary-nls-table}
+Summary_nls_table <- flextable(nls_output_df %>%
+  group_by(status) %>%
+  summarise(
+    n_records = n(),
+    min_species_per_substance = min(n_sp),
+    max_species_per_substance = max(n_sp),
+    min_taxa_per_substance = min(n_tax.grp),
+    max_taxa_per_substance = max(n_tax.grp)))
+  
+Summary_nls_table %>% 
+set_caption("Summary overview of the nonlinear least square model fit for the HESTIA ecotoxicological database.") %>% 
+  fontsize(., size = 9, part = "all") %>% 
+  flextable::set_table_properties(layout = "autofit") %>% 
+  flextable::set_header_labels(
+    status = "Output status", 
+    n_records = "Number of records",  
+    min_species_per_substance = "Minimum number of species per chemical",  
+    max_species_per_substance = "Maximum number of species per chemical",  
+    min_taxa_per_substance = "Minimum number of taxonomic groups per chemical",  
+    max_taxa_per_substance = "Maximum number of taxonomic groups per chemical"
+)
+
+```
+
+
+
+```{r GeoStDev-tables"}
+## select only substances with enough data to fit a model to
+use_category <- read.csv("results/HESTIA_chem_list_slim.csv")
+
+prob_df <- left_join(
+  x = nls_output_df %>% 
+    filter(status %in% c("Convergence", "Data insufficient")), 
+  y = use_category %>% 
+    select(CAS.Number, PesticideAI_name, Group, Substance_type), 
+  by = "CAS.Number") %>% 
+  mutate(sufficient_recs = case_when(
+    n_sp < 5 & n_tax.grp <3 ~ "insufficient", 
+      TRUE ~ "sufficient")) %>% 
+  mutate(Group = case_when(
+    Group == "Pesticide" ~ "Pesticides",
+    Group == "Antibiotic" ~ "Antibiotics",
+    Group == "Pharmaceutical" ~ "Pharmaceuticals",
+    Group == "PPCP" ~ "PPCPs",
+    TRUE ~ Group 
+    ))
+
+top_GeoStDev <- prob_df %>% 
+  arrange(-GStDev) %>% 
+  select(CAS.Number, PesticideAI_name, Group, GStDev) %>% 
+  slice(1:50)
+```
+
+The geometric standard deviation for the probability distribution at the $log(HC20_{EC10^{eq}})$-point are decreasing as the number of effect data increases (Figure \@ref(fig:GeoStDev)). The highest geometric standard deviation belong to chemicals classified as pesticides (Figure \@ref(fig:GeoStDev)) with a range up to `r round(top_GeoStDev[1,4], 1)`, with other groups of chemicals having far narrower probability distributions. The geometric standard deviation of `r nrow(top_GeoStDev %>% filter(Group == "Pesticide"))` of the top 50 chemicals with highest geometric standard deviation of the probability distribution at the $log(HC20_{EC10^{eq}})$-point belongs to pesticides.
+
+```{r GeoStDev,  fig.cap = "Geometric standard deviation of probability distribution ranges that are calculated from 100,000 Monte Carlo simulations."}
+novaluron_plot <- HESTIA_BASE_dat %>% 
+  filter(CAS.Number == "116714-46-6") %>% 
+  ggplot(aes(x = Species, y = EC10eq, fill = Taxonomy.Group))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ggtitle("Insecticide: Novaluron", subtitle = "Effect data distribution")
+
+Pyroxsulam_plot <- HESTIA_BASE_dat %>% 
+  filter(CAS.Number == "422556-08-9") %>% 
+  ggplot(aes(x = Species, y = EC10eq, fill = Taxonomy.Group))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ggtitle("Herbicide: Pyroxsulam", subtitle = "Effect data distribution")
+
+
+plot_group_uncertainty <- function(grp, df, Tag) {
+  plot_state <- {{grp}} == "Pesticides"
+  max_row <- which.max(df$GStDev)
+  sec_max_row <- which(df$GStDev == df$GStDev[order(df$GStDev, decreasing = TRUE)][2])
+  
+  plot <- df[df$Group == paste({{grp}}),] %>% 
+    arrange(GStDev) %>% 
+    ggplot(aes(x = n_recs, y = GStDev, color = status)) +
+    geom_point() +
+    scale_x_log10() +
+    xlim(1, 200) +
+    theme_bw() +
+    theme(
+      legend.position = c(0.8, 0.8),
+      legend.title = element_blank(),
+      legend.text = element_text(size = 10),
+      plot.title = element_text(size = 10, face = "bold"),
+      axis.text = element_text(color = "black", size = 10),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.line = element_line(colour = "black")
+    ) +
+    ggtitle(paste(Tag, grp, sep = " "))
+  
+  if (!plot_state) {
+    plot <- plot + guides(color = "none")
+  }
+  return(plot)
+}
+
+# Create the 6 different plots
+gl <- list(
+plot_pest <- plot_group_uncertainty("Pesticides", prob_df, "a)") +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)),
+plot_otherorg <- plot_group_uncertainty("Other organic chemicals", prob_df, "b)") + scale_y_continuous(limits = c(1, 10), breaks = scales::pretty_breaks(n = 5)),
+plot_antibiotic <- plot_group_uncertainty("Antibiotics", prob_df, "c)") + scale_y_continuous(limits = c(1, 5), breaks = scales::pretty_breaks(n = 5)),
+plot_pharma <- plot_group_uncertainty("Pharmaceuticals", prob_df, "d)") + scale_y_continuous(limits = c(1, 5)),
+plot_otherinorg <- plot_group_uncertainty("Other inorganic chemicals", prob_df, "e)") + scale_y_continuous(limits = c(1, 5)),
+plot_PPCP <- plot_group_uncertainty("PPCPs", prob_df, "f)") + scale_y_continuous(limits = c(1, 5))
+)
+
+bigplot <- ggpubr::annotate_figure(grid.arrange(
+  grobs = gl, 
+  layout_matrix = rbind(
+    c(1,1,2),
+    c(1,1,3),
+    c(4,5,6))), 
+  left = grid::textGrob("Geometric standard deviation", rot = 90, vjust = 1),
+  bottom = grid::textGrob("Number of records per chemical (log-scale)"))
+
+bigplot
+
+
+plot_pest_all <- plot_group_uncertainty("Pesticides", prob_df, "all pests") # Possibility to simply filter this subset to include only data w/ >5 n_sp & >3 tax.grp
+
+plot_pest_subset <- plot_group_uncertainty("Pesticides", prob_df %>% filter(n_sp >=5 & n_tax.grp >=3), "HQ") 
+plot_pest_bad_subset <- plot_group_uncertainty("Pesticides", prob_df %>% filter(n_sp <5 | n_tax.grp <3), "LQ")  + 
+               facet_grid(Geo_St.Dev < 5 ~., scales = "free_y") + 
+               theme(strip.background = element_blank(), 
+                     strip.text = element_blank()
+                     )
+
+
+
+```
+
+
+```{r, include=FALSE}
+# investigating Lithium hypochlorite and picolinafen
+read.csv("HESTIA_Shiny/data/HESTIA_cfs.csv") %>% 
+  filter(PesticideAI_name == "Lithium hypochlorite")
+
+HESTIA_BASE_dat %>% 
+  filter(CAS.Number == "13840-33-0") %>% 
+  ggplot(aes(x = Species, y = EC10eq, fill = Taxonomy.Group))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ggtitle("Insecticide: Lithium hypochlorite", subtitle = "Effect data distribution")
+
+# investigating Lithium hypochlorite and picolinafen
+read.csv("HESTIA_Shiny/data/HESTIA_cfs.csv") %>% 
+  filter(PesticideAI_name == "Picolinafen")
+
+HESTIA_BASE_dat %>% 
+  filter(CAS.Number == "137641-05-5") %>% 
+  ggplot(aes(x = Species, y = EC10eq, fill = Taxonomy.Group))+
+  geom_boxplot()+
+  scale_y_log10()+
+  ggtitle("Herbicide: Picolinafen", subtitle = "Effect data distribution")
+
+```
+
+### Comparison of ecotoxicological effects based on species sensitivity distributions (SSD) to the weighted means distribution{-}
+By fitting a linear model to the two datasets with $log(HC20_{EC10^{eq}})$ values based on weighted means generated by the NLS model and the standard $log(HC20_{EC10^{eq}})$ values calculated using the methodology by Owsianiak et al. [-@owsianiak_2022], we can establish a good fit for the two datasets where close to 94 % of the variability of the weighted means are explained by the recommended SSD calculations, Figure \@ref(fig:SSDs) **a)**. We plot the absolute differences between the two methods in a histogram to visualize the differences (**More explanation if we deem this comparison to be relevant**), referred to as Figure \@ref(fig:SSDs) **b)**.  
+
+```{r SSDs, fig.dim = c(12, 6), fig.cap = "Test caption and explanation"}
+# comparison - try to look into a lm() as a comparison. scatterplot/q-q plot and look for patterns if the two methods are comparable or how far off either method is from each other.
+SSD_weighted_means_comparison <- left_join(
+  x = nls_output_df %>% 
+    filter(status == "Convergence") %>% 
+    select(CAS.Number, log_HC20EC10eq, n_recs),
+  y = HESTIA_HC20_dataset %>% 
+    select(CAS.Number, HC20EC10eq),
+  by = "CAS.Number") %>% 
+  rename(Weighted_HC20EC10eq = log_HC20EC10eq,
+         SSD_HC20EC10eq = HC20EC10eq) %>% 
+  mutate(abs_diff = abs(Weighted_HC20EC10eq-SSD_HC20EC10eq))
+
+lm_SSD_weight_means <- lm(Weighted_HC20EC10eq ~ SSD_HC20EC10eq, SSD_weighted_means_comparison)
+SSD_lm_sum <- summary(lm_SSD_weight_means)
+SSD_lm_r.square <- summary(lm_SSD_weight_means)$r.squared
+
+# it is pretty easy to visualize a good fit of data. Mind that the data are presented as logarithmic values.
+# there is a clear correlation between the two approaches, no data rich chemicals are deviating, but rather data with ~10 records might deviate from the line. 
+SSD_compare <- SSD_weighted_means_comparison %>% 
+  ggplot(aes(x = SSD_HC20EC10eq, y = Weighted_HC20EC10eq))+
+  geom_point(aes(color = log10(n_recs)), alpha = 1) +
+  geom_text(aes(x = -2, y = 3), label = paste("R^2 =", round(SSD_lm_r.square, 4))) +
+  scale_colour_gradient(low = "grey", high = "black") +
+  labs(color = "(log10)n records", tag = "a)") +
+  theme(legend.position = "top",
+        text = element_text(color = "black", family = "serif"), 
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"))
+
+# These differences follow normal distribution to a fair extent.
+SSD_hist <- SSD_weighted_means_comparison %>% 
+  ggplot(aes(fill = n_recs)) +
+  geom_histogram(aes(x = abs_diff, fill = n_recs)) +
+  scale_x_log10() +
+  xlab("Absolute difference between unweighted\n and weighted logHC20EC10eq values (x = log10 scale)") +
+  labs(tag = "b)") +
+  theme(text = element_text(color = "black", family = "serif"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"))
+
+grid.arrange(SSD_compare, SSD_hist, ncol=2)
+```
+
+
+```{r taxonomyDiscussion}
+# Taxonomy discussion
+Species_list <- read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") %>% 
+    distinct(Test.organisms..species.) 
+
+# Separating the Species_list into columns with binomial species names, and "non-binomial" annotations    
+main_taxa_df <- Species_list %>% 
+  separate(col = Test.organisms..species., into = "species", sep = " sp\\.| ssp\\.| var\\.| x ", remove = F, convert = F) %>% 
+  mutate(non_binom = case_when(!grepl("\\s", species) ~ species),
+         species = case_when(!grepl("\\s", species) ~ as.character(NA), TRUE ~ species))
+
+sp_count_tbl <- HESTIA_BASE_dat %>% 
+  count(Species, sort = T)
+
+tot_recs <- nrow(read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv"))
+
+eff_crit_recs <- nrow(read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") %>% 
+filter(Effect %in% c(
+  "Behavior", "Growth", "Intoxication", "Population", "Reproduction", 
+  "Acute", "Cell(s)", "Growth Rate", "Mortality", "Feeding Behavior",
+  "Biomass", "Body Weight", "Chronic", "Frond Number", "Development", 
+  "Mobility","Seedling Emergence", "Immobilisation", "Behaviour" 
+  ) ))
+total_data_filtered_out <- tot_recs - nrow(HESTIA_BASE_dat)
+
+```
+ 
+
+### Discussion  
+*Data availability*  
+The chemicals investigated in this study are delimited to the HESTIA LCIA inventory, listing 16797 chemicals, which is far from a fully comprehensive database for all potentially harmful agrochemical substances. Moreover, ecotoxicological effect data is only available for `r round(100*(nrow(read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv") %>% distinct(CAS.Number))/nrow(HESTIA_chem_list_slim)), 0)` % of the 16797 chemicals queried. While the focus of this study is not to gather data on as many chemicals as possible, the numbers do illustrate the omnipresent problem of ecotoxicological characterization: limited data availability. Since uncertainty in the $CRF_{HC20}$ decrease as underlying effect data availability increases, we did investigate other potential sources for additional toxicological effect data inclusion and found the EnviroTox database [@connors_2019] and the EU environmental footprint (EF v3.1) database. In October 2022, @sala_2022 published the EF v3.1 database (https://eplca.jrc.ec.europa.eu/ecotox.html) with $CRF_{HC20}$ values for 6,038 chemicals calculated from toxicological effect data. The EF v3.1 database contains 140 % more characterized chemicals than the, now legacy model, USEtox v2.1 database [@saouter_2019-1; @sala_2022]. However, a substantial part of the toxicological effect data used to calculate $CRF_{HC20}$ values are marked as proprietary substance registrations, thus protected by confidentiality agreements and and cannot be shared (S. Sala, personal communication, 14 Nov 2022). This is unfortunate, as one of the 19 key recommendations of the Ecotoxicity Task Force and the Pellston workshop that was held in 2018 in Valencia, Spain is to “use data that has a traceable origin” (Owsianiak et al., [-@owsianiak_2022]). Toxicological data contained within the EnviroTox database overlap to a large extent with the data sources of the present database, and after inspection, only >1 % of records (data not shown) in the EnviroTox database could be added without the risk of introducing duplicate data which prompted us to refrain from including data from this source. 
+
+Finding a good balance in maximizing data inclusion and sorting out improper toxicological effect records is a difficult operation. During data curation we removed `r round((total_data_filtered_out/tot_recs)*100, 1)` %, where `r round((tot_recs-eff_crit_recs)/tot_recs*100, 1)` % of the original dataset due to improper biological effect/effect criterion descriptions of effect data, a topic with surprisingly little guidance available in the literature. Selection of relevant biological effect/effect criterions are mentioned only briefly in Saouter et al. [-@saouter_2019-1], and  Sala et al. [-@sala_2022]. Our strategy was to include ecologically relevant effect criterions based on communication with Dr. Andreu Rico (IMDA Institute, Madrid, Spain). We also note that for several toxicological effect records, taxonomic details are given at levels above species. When calculating $\hat\mu$, species-specific $EC10^{eq}$ effect values (Eq. 5), records defined at genus level without a species name will influence the calculation by representing an artificial species. For example *Daphnia sp.* will count as one species alongside *D. magna*. Taxonomic identifiers above species-level have been removed from this dataset resulting in the exclusion of `r nrow(main_taxa_df %>% filter(!is.na(non_binom)))` taxonomic definitions (not counting common names or erroneous names). This issue seems to be overlooked in the taxonomic records of both @connors_2019 and @sala_2022. While data scarcity is an issue, we argue that imposing an artificial data point is a poor methodological choice.  
+
+*Uncertainties:*   
+The present database contains data at both acute and chronic effect data from EC50, EC10 and NOEC endpoints (and their respective analogues, like LC50, EC0, LOEC etc.) which have been extrapolated using using regression coefficients from Aurisano et al. [-@aurisano_2019]. A substantial part of the $EC10^{eq}$ effect data (`r round(nrow(HESTIA_BASE_dat %>% filter(AcuteChronic == "Acute" & Endpoint_conv == "EC50"))/nrow(HESTIA_BASE_dat), 1)` %) are extrapolated from Acute EC50 effect data to Chronic EC10eq where large confidence interval ranges are present (for example, the regression coefficient for fish is estimated to 7.44, with a 95% confidence interval 2.92-18.95; see SI Table 6), and these confidence intervals have not been considered when constructing SSD models. It can be argued that with sufficient numbers of records, a large variation in one of the data points included in the species-specific $EC10^{eq}$ average is negligible. How much this uncertainty influences the final $CRF_{HC20}$ stands to be investigated in future studies.    
+
+Uncertainties in the $CRF_{HC20}$ value are not present only due to variability within each point of the SSD curve, in particular, many pesticides have an inherently variable effect to different organisms due to their specific toxic mode of action [REF! van Zelm??]. 
+Uncertainties are not only accompanying $CRF_{HC20}$ when calculating CFs. Uncertainty is attached to the output from all steps in the LCIA, including the models used to estimate chemical fate and chemical exposure. Fate models have recently been investigated for uncertainties by Nemecek et al., [-@nemecek2022operationalising], where the authors find... 
+The Only variability in the ecotoxicological effect factor. Uncertainties connected to exposure, cocktail effect, application etc. are missing,
+
+
+@aurisano_probabilistic_2023 quantify the uncertainty "POD/RDs: human impacts" for 10145 chemicals by calculating the squared geometric standard deviation of interstudy variability and intrastudy variability prior to fitting a lognormal distribution of data and bootstrapping, to generate comparable uncertainty distributions across the entire dataset.  
+The present approach fits the cumulative normal distribution to the vector of $\hat\mu$, allowing to account for the variance across all species data, while the methodology recommended by Owsianiak et al., [-@owsianiak2019] use the arithmetic mean of vectors $M_{i}$ and $S_{i}$ respectively are used to calculate a $log(HC20_{EC10^{eq}})$-value. 
+The current approach is crucial for a fair estimate of probability distributions at the $log(HC20_{EC10^{eq}})$-value, as data availability varies greatly across species, with a few species being over-represented in the dataset (e.g *`r knitr::combine_words(sp_count_tbl[1:3,1])`* corresponding to `r round((sum(sp_count_tbl[1:3,2])/nrow(HESTIA_BASE_dat))*100, 0)` % of the dataset). 
+
+A problem for probabilistic uncertainty assessment of pesticides, due to the specific mode of action, are the large range of effect between target and non-target organisms [@warren2010application]. So with a distribution of effect data at two extremes, we can assume that pesticides will have large uncertainties in the calculated effect factor, which, indeed, is the case for the insecticide "Novaluron" and herbicide "Pyroxsulam", where the geometric standard deviation is very high (5.1 and 4.8 respectively) (figure \@ref(fig:GeoStDev)). This brings up the issue of how to represent pesticide ecotoxicity in LCIA modelling, should results be weighted towards the lowest quantile, or include regression coefficients for pesticide class chemicals?  
+ - Should i continue on this thought? 
+*(cite @fantke_2018: "The choice of a lower percentile than the median will also reduce the discrepancy with contemporary approaches in chemical risk assessment that ask for the use of several SSD models in the case of chemicals with a specific mode of action (most pesticides). There are numerically large differences at the level of the median value (HC50EC50), but expectedly lower numerical consequences in the tails between the nonsplit and split SSD approaches (e.g., Zajdlik et al. 2009).")*  
+**NEED TO INCLUDE REFERENCES TO van Zelm et al., 2007 & 2009!!**
+
+ - These are very old, and use an multi-substance (ms)PAF to calculate effect factors, compartmentalizing effects from chemicals with different Toxic modes of Action.  
+ - van Zelm et al., (2007) points out that >4 species should be used to calculate effect factors ($HC50_{EC50}$)  
+We also use regression coefficients to include acute data, converted into EC10eq from Aurisano et al. [-@aurisano_2019]. An investigation might be needed for the feasibility/uncertainty and we DEFINITELY need to motivate and explain that this is happening!
+*The impacts of uncertainties*  
+
+ - The role of uncertainty varies across studies – broad LCAs, niched LCAs or non-LCAs (ERAs), depending on the amount of data aggregated in the LCIA.
+ - Software is still missing functionality to include uncertainties of the characterization factors
+ 
+*Future work* 
+
+
+
+**Conclusions**  
+ - By gathering a large set of freely available ecotoxicological records, we have been able to calculate the 95% probability distribution for the $log(HC20_{EC10^{eq}})$-value on SSD curves for `r nrow(nls_output_df %>% filter(status== "Convergence"))` chemicals, yet only fewer than 10% of the original dataset with 16797 chemicals. 
+ - Some pesticides have notoriously high uncertainty at the $log(HC20_{EC10^{eq}})$-value compared to other types of substances. This can be expected, due to the nature of toxicological specificity of these chemicals. 
+
+
+\newpage
+### References

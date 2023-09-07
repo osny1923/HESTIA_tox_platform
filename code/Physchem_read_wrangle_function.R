@@ -27,7 +27,9 @@ physchem_output  <- {{raw_physchem_input}} %>%
     select(-starts_with("FM")) %>% 
     # Unit conversions to USEtox-friendly format
     mutate(
-      log.Kow = 10^log.Kow, # Converting to L/L, removing logarithmic value
+      log.Kow = 10^log.Kow, # Converting Kow to L/L, removing logarithmic value
+      Koc..MCI. = 10^Koc..MCI., # Converting Koc to L/kg, removing logarithmic value
+      Koc..Log.Kow. = 10^Koc..Log.Kow., # Converting Koc to L/kg, removing logarithmic value
       Exp.Vapor.Pressure = 133.3*Exp.Vapor.Pressure, # Converting from mmHg to Pascal
       Selected.Vapor.Pressure = 133.3*Selected.Vapor.Pressure, # Converting from mmHg to Pascal
       Exp.Henrys.Law.Constant = 101325*Exp.Henrys.Law.Constant, # Converting from atm to Pa
@@ -39,6 +41,7 @@ physchem_output  <- {{raw_physchem_input}} %>%
       Est.Kow_L.L = log.Kow,
       Exp.Kow_L.L = Exp.Log.P,
       Koc_L.kg_MCI = Koc..MCI.,
+      Koc_L.kg_Kow = Koc..Log.Kow.,
       Biodeg_BIOWIN3 = Ultimate.biodeg..Biowin.3.,
       Exp.Water.Solubility_mg.L = Exp.Water.Solubility,
       Exp.Vapor.Pressure_Pa = Exp.Vapor.Pressure,
@@ -68,24 +71,30 @@ physchem_output  <- {{raw_physchem_input}} %>%
       KdegA = case_when(
         is.na(OVERALL.OH.rate.constant) ~ as.numeric(NA),
           TRUE ~ (OVERALL.OH.rate.constant * 1.5E6)/2),
+      KdegA = case_when(
+        KdegA == 0 ~ as.numeric(NA),
+          TRUE ~ KdegA),
       Kow_L.L = case_when(
         is.na(Exp.Kow_L.L) ~ Est.Kow_L.L,
           TRUE ~ Exp.Kow_L.L),
+      Koc_L.kg = case_when(
+        is.na(Koc_L.kg_MCI) ~ Koc_L.kg_Kow,
+        #Koc_L.kg_MCI == 1 ~ Koc_L.kg_Kow,
+          TRUE ~ Koc_L.kg_MCI),
       pKaChemClass = case_when(
         !is.na(pKa.loss) & is.na(pKa.gain) ~ "acid",
         is.na(pKa.loss) & !is.na(pKa.gain) ~ "base",
         !is.na(pKa.loss) & !is.na(pKa.gain) ~ "amphoter",
         Predefined.substance.type == "Multi constituent" ~ "undefined",
         is.na(pKa.loss) & is.na(pKa.gain) ~ "neutral"),
-      # According to the USEtox manual, The estimation procedures (regression equations) are only suitable under certain conditions. "The regressions used in USEtox for calculating the Koc for the electrolytes are suited for acids within the pKa range 0–12 and with a log Kow between -2.18 and 8.50. For bases the pKa needs to be above 2 and log Kow is between -1.66 and 7.03 (Franco & Trapp 2008)."
-      Koc_L.kg_MCI = case_when(
-        pKaChemClass == "acid" | pKaChemClass == "amphoter" & pKa.loss <12 & pKa.loss > 0 & log(Kow_L.L) >= -2.18 & log(Kow_L.L) <= 8.5  ~ Koc_L.kg_MCI,
-        pKaChemClass == "base" | pKaChemClass == "amphoter" & pKa.gain >2 & log(Kow_L.L) >= -1.66 & log(Kow_L.L) <= 7.03 ~ Koc_L.kg_MCI,
-        pKaChemClass == "neutral" ~ Koc_L.kg_MCI),
       Source_Kow = case_when(
         is.na(Est.Kow_L.L) & is.na(Exp.Kow_L.L) ~ "",
         is.na(Exp.Kow_L.L) ~ "Estimated",
           TRUE ~ "Experimental"),
+      Source_Koc = case_when(
+        is.na(Koc_L.kg_MCI) & is.na(Koc_L.kg_Kow) ~ "",
+        is.na(Koc_L.kg_MCI) | Koc_L.kg_MCI == 1 ~ "Biowin_LogKow",
+          TRUE ~ "Biowin_MCI"),
       Vapor.Pressure_Pa = case_when(
         is.na(Exp.Vapor.Pressure_Pa) ~ Selected.Vapor.Pressure,
           TRUE ~ Exp.Vapor.Pressure_Pa),
@@ -106,8 +115,13 @@ physchem_output  <- {{raw_physchem_input}} %>%
       Source_KH25C = case_when(
         is.na(kH25C_Pa.m3.mol)  ~ as.character(NA),
         is.na(Exp.Henrys.Law.Constant) ~ "Calculated",
-          TRUE ~ "Experimental")
+          TRUE ~ "Experimental"),
+      # According to the USEtox manual, The estimation procedures (regression equations) are only suitable under certain conditions. "The regressions used in USEtox for calculating the Koc for the electrolytes are suited for acids within the pKa range 0–12 and with a log Kow between -2.18 and 8.50. For bases the pKa needs to be above 2 and log Kow is between -1.66 and 7.03 (Franco & Trapp 2008)."
+    Koc_L.kg = case_when(
+        pKaChemClass == "acid" | pKaChemClass == "amphoter" & pKa.loss <12 & pKa.loss > 0 & log(Kow_L.L) >= -2.18 & log(Kow_L.L) <= 8.5  ~ Koc_L.kg,
+        pKaChemClass == "base" | pKaChemClass == "amphoter" & pKa.gain >2 & log(Kow_L.L) >= -1.66 & log(Kow_L.L) <= 7.03 ~ Koc_L.kg,
+        pKaChemClass == "neutral" ~ Koc_L.kg)
     ) %>% 
-    select(CAS.Number, Molecular.formula, Predefined.substance.type, MW.g.mol, pKaChemClass, pKa.gain, pKa.loss, Kow_L.L, Koc_L.kg_MCI, kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L, KdegA, KdegW, KdegSl, KdegSd, BAF_L.Kg, starts_with("Source"))
+    select(CAS.Number, Molecular.formula, Predefined.substance.type, MW.g.mol, pKaChemClass, pKa.gain, pKa.loss, Kow_L.L, Koc_L.kg, kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L, KdegA, KdegW, KdegSl, KdegSd, BAF_L.Kg, starts_with("Source"))
   return(physchem_output)
 }
