@@ -133,24 +133,24 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
         
       } else { #Run Monte Carlo analysis on the distribution of HC20EC10eq data to assess uncertainty!
         output_list$nls_results <- list(nls_out)
+        # assign CAS.Number to output df
         output_list$CAS.Number <- {{CAS}}
         
-        # Defining the number of runs is done in the function using parameter (MC_n)
+        # Defining the number of MC runs (MC_n) is done in function input.
         # Monte Carlo of the HC20EC10eq distribution for the mu using the Standard ERROR for sigma
         output_list$MC_mu <- list(rnorm({{MC_n}}, mean = summary(output_list$nls_results[[1]])$parameters[1,1], sd = summary(output_list$nls_results[[1]])$parameters[1,2]))
         # Monte carlo of the HC20EC10eq distribution for the sigma using the Standard ERROR for sigma
         output_list$MC_sig <- list(rnorm({{MC_n}}, mean = summary(output_list$nls_results[[1]])$parameters[2,1], sd = summary(output_list$nls_results[[1]])$parameters[2,2]))
-        # these two vectors is used to construt HC20 using the qnorm()
+        # these two vectors is used to construct HC20 using the qnorm()
         output_list$HCx_vec <- list(qnorm(({{HCx}}/100), mean = output_list$MC_mu[[1]], sd = output_list$MC_sig[[1]]))
         
         # assigning all the lists with respectively generated data
-        # assign CAS.Number to output df
         # Automating extraction of the mu & sig nls results
         output_list$log_HCxEC10 <- qnorm(({{HCx}}/100), mean = coef(nls_out)[1], sd =  coef(nls_out)[2]) # gives me a point value of the corresponding HC20 (data fetched from console output)
         output_list$CRF <- ({{HCx}}/100)/(10^output_list$log_HCxEC10)
         output_list$mu <- coef(output_list$nls_results[[1]])[1]
         output_list$sigma <- coef(output_list$nls_results[[1]])[2]
-        
+        # Mean HC_x based on MC vector
         output_list$mean_HCx <- mean(output_list$HCx_vec[[1]], na.rm=T)
         output_list$sd_HCx <- sd(output_list$HCx_vec[[1]], na.rm=T)
         # output_df$CV_HCx <- (output_df$sigma/output_df$mu)*100

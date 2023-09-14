@@ -5,7 +5,8 @@ date: "`r Sys.Date()`"
 toc: TRUE
 output:
   bookdown::word_document2:
-    number_sections: no
+    number_sections: yes
+    global_numbering: true
     toc: true
     toc_depth: 2
   bookdown::html_document2:
@@ -28,17 +29,17 @@ library(stringr)
 library(flextable)
 ```
 
-The following document provides detailed descriptions to the construction of the HESTIA Ecotoxicological database constructions. Data is attached as a Microsoft Excel file (Supplementary Data) and R code is available at https://github.com/osny1923/HESTIA_tox_platform.  
+The following document provides detailed descriptions to the construction of the HESTIA Ecotoxicological database. Data is attached as a Microsoft Excel file (Supplementary Data) and R code is available at https://github.com/osny1923/HESTIA_tox_platform.  
 
 Corresponding author: [oskar.nyberg@su.se](mailto:oskar.nyberg@su.se)
 
 \newpage
 
-<br>
-<br>
-<br>  
+\br
+\br
+\br
 
-# Workflow overview
+# Workflow overview{-}
 
 Below is a general schematic diagram of the database construction methodology (Figure \@ref(fig:figmethod)). A detailed schematic for the file structure-relationships of the GitHub repository is given at the end of this document (Figure \@ref(fig:figschema)).    
 
@@ -48,9 +49,9 @@ knitr::include_graphics("figures/Methods_overview.png")
 ```
 
 \newpage
-# 1. Pre-processing of the chemical inventory
+# Pre-processing of the chemical inventory
 
-## 1.1 The HESTIA chemical inventory  
+## The HESTIA chemical inventory  
 ```{r, echo = F}
 pesticideAI <- read.csv("data/excel_references/pesticideAI.csv")[, c(1,3:9)]
 names_pesticideAI <- names(pesticideAI)
@@ -84,7 +85,7 @@ cas_smiles <- read.csv("data/excel_references/CAS_CID_list_final.csv")
 
 ```
 
-## 1.2 CASRN to SMILES identification
+## CASRN to SMILES identification
 The file `pesticideAI.csv` is read into R and because of cases where Excel tends to reformat certain CASRNs into dates, the column "term.id" is used to derive CASRN. This is performed by separating the column from "CAS-" and only keep the corresponding CASRN numerical identification, calling this column "CAS.number". 
 Next, we use the NCBI PubChem project to match CASRN and substance names to SMILES configuration with the intermediate step of acquiring PubChem substance IDs using the R package [Webchem](https://docs.ropensci.org/webchem/) [@Webchem_2020]. The script is documented in the file "*code/Translating_CAS_to_SMILES_via_PubChem.R*".  
 First query to the PubChem (PC) project is performed to match chemical name ("term.name"-column) to PC substance IDs using the `get_cid()`-function. This matched `r (16797-3911)` names to PC-IDs which are used to collect information on SMILES-configuration. 
@@ -94,10 +95,10 @@ For the remaining 2259 chemicals, multiple PC Id matches from the CASRN-query ar
 The final result of CASRN-SMILES configuration matching is compiled to as a complete list of 16797 chemicals, with `r nrow(cas_smiles %>% filter(!is.na(CanonicalSMILES)))` identified SMILES-configurations, available in supplementary data "CAS_SMILES_MATCHING"-tab. A .txt-file with 16797 rows containing only CASRN and SMILES-configuration is created to be used for importing data into the OECD QSAR Toolbox   
 Lastly, the output is also exported as five .txt-files with maximum 4000 rows of CAS-SMILES matches intended for use in downstream data queries from OECD QSAR Toolbox. Due to memory issues with the VEGA QSAR-software and when compiling ecotoxicological data in OECD QSAR Toolbos, a query of maximum 4000 chemicals per turn will be used. These files are all exported as "data/excel_references/cas_smiles_list['x'k-'x'k].txt" - where x represents the row number in "data/excel_references/CAS_CID_list_final.txt".
 
-# 2. Data queries  
+# Data queries  
 The OECD QSAR Toolbox v4.5 SP1 2022 software [@dimitrov2016qsar] is used to gather physicochemical data and ecotoxicological records for the chemicals listed in the "data/excel_references/CAS_CID_list_final.csv"-file. As input, a .txt-file with CAS-SMILES matches is read and `r nrow(cas_smiles %>% filter(!is.na(CanonicalSMILES)))` with matching CASRN-SMILES-configurations are imported by reading the .txt-file as list object, selecting "NO" when asked to "search the database for empty SMILES with defined CAS numbers". 9 "problematic chemicals" were identified at rows 1696, 1724, 1937, 2334, 2406, 2877, 4252, 6961, and 6502, leading to 16788 chemical structures imported to the software.
 
-## 2.1 Physicochemical data gathering
+## Physicochemical data gathering
 The following 2D parameters are selected for estimations using OECD QSAR Toolbox: 
 ```{r, echo=FALSE}
 RAW_Physchem_names <- names(read.csv("data/QSAR_Toolbox_physchem_data_2023-07-11_RAW.csv", header = T, sep = "\t", na.strings = "", fileEncoding = "UTF-16LE",  stringsAsFactors = FALSE)[,9:28]) 
@@ -107,26 +108,26 @@ RAW_Physchem_names <- sort(RAW_Physchem_names)
 ```
 `r knitr::combine_words(RAW_Physchem_names)`. All of these parameters are required by USEtox v2.1 for characterizations of chemicals. The full dataset with obtained physicochemical data is available in supplementary data "PHYSCHEM"-tab. Annotations tagged with "Exp"-implies that data comes from experimental sources, others are tagged with "Est", meaning they are estimated using *in silico* methods.  
 
-### 2.1.1 Molecular weight (MolW)
+### Molecular weight (MolW)
 Molecular weight are calculated using OASIS software (Laboratory of Mathematical Chemistry (LMC), Bourgas, Bulgaria, https://oasis-lmc.org/). MolW is reported as Dalton (Da) but converted to g $mol^{-1}$ as a 1:1 ratio.
 
-### 2.1.2 Acid and base dissociation values (pKa)
+### Acid and base dissociation values (pKa)
 Acid and base dissociation values (pKa) are calculated using the OASIS regression model (Laboratory of Mathematical Chemistry (LMC), Bourgas, Bulgaria, https://oasis-lmc.org/), where pKa gain is defined from the “Basic pKa”, pKa loss is defined from the Acidic pKa, and the pKa chemical class parameter can be defined as “Acidic” if cells are populated for pKa loss, “Basic” if cells are populated for pKa gain, “Amphoteric” if both cells are populated and “Neutral” if both cells are blank. 
 For multi constituent substances, the pKa chemical class was left as “undefined”.
 
-### 2.1.3 Octanol-water partitioning coefficient (Kow)
+### Octanol-water partitioning coefficient (Kow)
 Octanol-water partitioning coefficient KOW was estimated using the EPIsuite LOGKOW fragment constant methodology.
 
-### 2.1.4 Organic carbon-water partitioning coefficient (Koc)
+### Organic carbon-water partitioning coefficient (Koc)
 Organic carbon-water partitioning coefficient is estimated in EPIsuite using the MCI regression models, similar to in USEtox’s methodology, applying the same cut-off values for suitability. Koc is then calculated for substances classed as neutral, acids and amphoteric substances when pKa.loss ranges 0-12 and logKOW ranges -2.18 - 8.5, and bases and amphoteric substances when pKa.gain is above 2 and logKOW ranges -1.66 - 7.03. 
 
-### 2.1.5 Vapor pressure ($P_{vap}25$)
+### Vapor pressure (**$P_{vap}25$**)
 Vapor pressure at 25 degrees Celcius ($P_{vap}25$) is estimated using available EPIsuite models and is automatically selected as by the software as the most fitting model from either the Antoine Method, the Modified Grain Method, or the Mackay Method. $P_{vap}25$ is reported as mm Hg, but converted into Pascal (Pa) using a multiplier of 133,322.
 
-### 2.1.6 Water solubility (Sol25)
+### Water solubility (Sol25)
 Where experimental water solubility (Sol25, mg L-1) data is available, these data are prioritized over solubility data estimated using EPIsuite WSKOW models which use KOW as base for regression models to generate estimates.
 
-### 2.1.7 Ultimate biodegradation models for water, soil and sediment (Kdeg)
+### Ultimate biodegradation models for water, soil and sediment (Kdeg)
 Ultimate biodegradation models (BIOWIN 3) are used to estimate biodegradation rates in water, soil and sediment. Estimated BIOWIN 3 output values are transformed into degradation rates (1/s) by first using the conversion specified in Table S\@ref(tab:kdeg-table) available in the EPIsuite manual (P2 Framework Manual 2012 EPA-748-B12-001), transforming values into delimited time formats and thereafter converting these into biodegradation rates as 1/s according to the USEtox manual [@Fantke_2017].
 
 ```{r kdeg-table, echo=FALSE}
@@ -148,7 +149,7 @@ kdeg_table %>%
 
 ```
 
-### 2.1.8 Ultimate biodegradation models for air (Kdeg)
+### Ultimate biodegradation models for air (Kdeg)
 Degradation rates for air was calculated according to the OH rate constant method specified in the USEtox manual with the formula 
 
 $$
@@ -156,10 +157,10 @@ Kdeg_{A} = \frac{\text{OH rate constant} \times [OH]}{2}
 $$
 Where [OH] represents the default OH concentration in air: 1.5 × 106 molecules (radicals)/cm3 per 12h of daylight [@Fantke_2017]. The overall OH rate constant was calculated from EPIsuites AOP v1.92: HYDROXYL RADICALS (25 deg C) model.
 
-### 2.1.9 Bio accumulation factor, fish ($BAF_{fish}$)
+### Bio accumulation factor, fish (**$BAF_{fish}$**)
 Data on bio accumulation factors in fish, Log BAF (upper trophic) values estimated using Arnot-Gobas BCF & BAF Methods in EPIsuite were used. Log-transformed log10 $BAF_{fish}$ gives the correct unit for USEtox calculations, L $kg^{-1}$.
 
-### 2.1.10 Henry’s Law coefficient (KH25C)
+### Henry’s Law coefficient (KH25C)
 Henry’s Law coefficient (KH25C) could be sourced from experimental data (LogP) or calculated by  
 
 $$
@@ -168,7 +169,7 @@ $$
 
 according to Fantke et al., [-@Fantke_2017], where Pvap25 (Pa) is the vapor pressure at 25℃, MolW is the molecular weight (g mol-1), and Sol25 is the water solubility at 25℃ (mg L-1).
 
-## 2.2 Ecotoxicological effect data
+## Ecotoxicological effect data
 The five files containing CASRN-SMILES matches ("data/excel_references/cas_smiles_list['x'k-'x'k].txt") are each imported separately into OECD QSAR Toolbox.
 Then all available aquatic ecotoxicity data is gathered from available sources using the "data"->"gather" function, selecting "all endpoints". The data are subsequently exported as five separate documents (to avoid system freezing due to insufficient memory).
 
@@ -211,13 +212,13 @@ filt_2 %>%
                                n = "Total number of records")
 ```
 
-# 3. Data processing
+# Data processing
 
-## 3.1 Chemical use categorization
+## Chemical use categorization
 To categorize chemicals according to how they are used or applied, several processing steps are applied to obtain the best categorization per chemical. The operations utilize the R package `Webchem` [@Webchem_2020].
 Starting with importing the file "data/excel_references/CAS_CID_list_final.csv" as an object called "CAS_CID_list" for chemical use category annotations. Code is available in "*code/Pesticide_annotations.R*"  
 
-### 3.1.1 Data gathering and processing
+### Data gathering and processing
 Data from multiple resources are gathered using various methods:  
 
 ```{r USEPACompTox, echo=FALSE, warning=FALSE, message=FALSE}
@@ -321,7 +322,7 @@ ChEBI_classes <- ChEBI %>%
 
 These data sets are joined to the `CAS_CID_list`-object and stored as object `HESTIA_Comp_info`.
 
-### 3.1.2 Substance type annotations
+### Substance type annotations
 
 ```{r useCategories, echo=FALSE}
 useCategories <- read.csv("results/HESTIA_chem_prop_list_full.csv")
@@ -329,7 +330,7 @@ useCategories <- read.csv("results/HESTIA_chem_prop_list_full.csv")
 
 Chemicals in the `HESTIA_Comp_info`-object are classified into chemical groups: `r knitr::combine_words(useCategories %>% distinct(Group) %>% pull(Group))`. Chemicals were defined as organic or inorganic based on presence or absence of carbon [C] in the SMILES configuration. Halogenated chemicals are defined as chemicals containing the elements [F], [Cl], [Br], [I], and heavy metals are defined as chemicals containing elements with a density $\ge$ 5 g per $cm^3$ and an atomic number > 20 [@raychaudhuri2021]. Multi-constituent chemicals are classified as "unknown" due to difficulties in assigning correct SMILES configurations, but if chemical names contain the string "mixt.", chemicals are classified as "Chemical mixture".
 
-### 3.1.3 Categorizing use classification and chemical types
+### Categorizing use classification and chemical types
 
 With different data sources, a chemical may have >1 use categorization and to supply the best categorization, a function is designed to count the number of various classifications for each chemical and assign the one with highest number of matches ("code/Use_category_function.R"). In case of a tie, "Pesticide" categorization is prioritized followed by "Antibiotic" categorization and each annotated with "tie" respectively. If no use classification is available, chemicals are categorized as either "Other organic chemicals" or "Other inorganic chemicals" whether the chemical is defined as organic or inorganic, or "Unknown" if SMILES-configurations are lacking. A summary of the number of records per chemical type and use classification is presented in Table \@ref:(tab:useCounts). The final data set is exported as "results/HESTIA_chem_prop_list_full.csv". The use-classification is found in supplementary data "CHEMICAL_PROPERTIES"-tab.
 
@@ -353,7 +354,7 @@ useCountsFlx %>%
                                n = "Number of records")
 ```
 
-## 3.2 Taxonomic classification
+## Taxonomic classification
 
 ```{r taxData, echo=FALSE}
 HESTIA_HC20_DB <- read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv")
@@ -361,13 +362,13 @@ HESTIA_HC20_DB <- read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv")
 selection_list <- c("Test.organisms..species.", "phylum", "class", "order", "genus", "species (updated)", "source", "query")
 taxonomy <- read.csv("data/Taxonomy/Species_taxonomy.csv")
 removedSpecies <- read.csv("data/Taxonomy/filtered_out_species.csv")
-sptab1 <- removedSpecies %>% slice(1:60)
-sptab2 <- removedSpecies %>% slice(61:120)
-sptab3 <- removedSpecies %>% slice(121:180)
-sptab4 <- removedSpecies %>% slice(181:233) %>% 
+sptab1 <- removedSpecies %>% slice(1:55)
+sptab2 <- removedSpecies %>% slice(56:110)
+sptab3 <- removedSpecies %>% slice(111:165)
+sptab4 <- removedSpecies %>% slice(166:217) %>% 
   rbind(., 
-        data.frame(Test.organisms..species. = rep("", 7), 
-                   n = rep("", 7)))
+        data.frame(Test.organisms..species. = rep("", 3), 
+                   n = rep("", 3)))
 full_table <- cbind(sptab1,sptab2,sptab3,sptab4)
 colnames(full_table) <- c("Species.removed", "number of records.", "Species..removed", "number of records..","Species...removed", "number of records...","Species....removed", "number of records....")
 remSpecies <- flextable(full_table)
@@ -404,7 +405,7 @@ taxSum %>%
   
 ```
 
-## 3.3 Curation of ecotoxicological data
+## Curation of ecotoxicological data
 
 ```{r, echo=FALSE}
 RawToxData <- read.csv("data/RAW_DB/HESTIA_HC20_DB_raw_toxdata.csv")
@@ -419,7 +420,7 @@ endpoints_to_incl <- c(
 
 Using the OECD QSAR Toolbox software, the list of matching CASRN to SMILES configurations (`r nrow(cas_smiles %>% filter(!is.na(CanonicalSMILES)))` chemicals with matches; see Supplementary Data, tab: "CAS_SMILES_MATCHING") were queried for ecotoxicological data at the following endpoints `r knitr::combine_words(endpoints_to_incl)`. A total of `r nrow(RawToxData)` records were returned for `r nrow(RawToxData %>% distinct(CAS.Number))` chemicals. These data were subsequently curated stepwise as follows:
 
-### 3.3.1 Adjusting test concentrations reported as a range, 
+### Adjusting test concentrations reported as a range, 
 Curation of values reported as ranges are done following a simplified methodology from @saouter2018environmentalfootprint. For records where a min and max range is available the following rules will be applied:
 In cases where a lower range value is annotated with "ca.", "=" or no annotation, **the lowest value is selected**. But if the lower range value is annotated with ">", the record is removed, except for records with NOEC endpoints. In cases where lower values are annotated with "<", this value is removed (Table \@ref(tab:qualRemove)).
 
@@ -437,7 +438,7 @@ ValueQualTable %>%
     ) 
 ```
 
-### 3.3.2 Manual removal of data 
+### Manual removal of data 
 Records with strings "Insufficient" or "Unsatisfactory" in the column `Control.type` are removed, as well as data containing the strings "QSAR", "bioassay", "quantitative" in the `Title` column, and the strings "QSAR" and "bioassay" in the `Experimental.design` column. Manual inspection of data reveals records containing inaccurate or improper data and the following records are subsequently removed (Table \@ref(tab:manCur))  
 
 ```{r manCur, echo=FALSE}
@@ -474,17 +475,17 @@ manCur <- flextable::flextable(
       "Presents very low effect concentrations from micrplastic study on D. rerio embryos, concentrations reported are used as an effect test result, incorrect entry into database",
       "Study runs toxicological effect testing across a range of temperatures, leading to skewed data output.",
       "Duplicate data exists from the same author as a conference publication",
-      "The Japan MoE Ecotoxicological tests on chemical Hexabromobenzene, CASRN=87-82-1, is reported with data 6 orders of magnitude from all other data, and the specific test report is not to traceable.")
+      "The Japan MoE Ecotoxicological tests on chemical Hexabromobenzene, CASRN=87-82-1, is reported with data 6 orders of magnitude from all other data, and the specific test report is not traceable.")
     )
   )
 manCur %>% 
-  set_caption("Manually removed studies from the dataset") %>% 
+  set_caption("Manually removed records from the dataset") %>% 
   set_table_properties(layout = "autofit") %>% 
   flextable::fontsize(., size = 9, part = "all")
 ```
 
   
-### 3.3.3 Test medium selection
+### Test medium selection
 ```{r}
 no_medium <- RawToxData %>% 
   left_join(
@@ -514,7 +515,7 @@ flextable::flextable(Media_type) %>%
 ```
 
 
-### 3.3.4 Selecting ecologically relevant effect criterions   
+### Selecting ecologically relevant effect criterions   
 The selection of relevant effect criterions was decided on following discussions with Dr. Andreu Rico (IMDA Institute, Madrid, Spain) to maximize data inclusions, while omitting effects that display low ecological relevance (Table \@ref(tab:EffCrit)).  
 
 ```{r EffCrit, echo=FALSE}
@@ -530,13 +531,13 @@ flextable::flextable(RawToxData %>%
   count(Effect, sort = T) %>% 
   mutate("Ecological relevance" = case_when(Effect %in% Included_criterions ~ "YES", TRUE ~ "NO")) %>% 
     rename("Number of records" = n)) %>% 
-  set_caption("Number of records included and removed depending on test effect criterion") %>% 
+  set_caption("Number of records included (Ecological relevance = YES) and removed (Ecological relevance = NO) depending on test effect criterion") %>% 
   set_table_properties(layout = "autofit") %>% 
   flextable::fontsize(., size = 9, part = "all")
 ```
  
 
-### 3.3.5 Selecting relevant taxonomic annotations  
+### Selecting relevant taxonomic annotations  
 Binomial taxonomic descriptions are required at species level Required to no misrepresent a presence of an "artificial" species in the downstream calculations. The incorrect species annotations and number of records removed are shown in Table \@ref(tab:remSpecies).
 
 ```{r remSpecies, echo=FALSE}
@@ -547,7 +548,7 @@ remSpecies %>%
 ```
 
 
-### 3.3.6 Effect concentration and unit harmonization
+### Effect concentration and unit harmonization
 Effect data are tested and reported with heterogenous concentrations and units. To harmonize tests respective concentration into mg/L, simple conversions are needed, where possible. Effect data comes reported with `r nrow(RawToxData %>% distinct(Value.Unit))` different units and some cannot be converted into mg/L, i.e., "ug/cell" or "gal/acre". Data with non-convertible units are thus removed.
 
 ```{r EffConc, echo = FALSE}
@@ -559,8 +560,8 @@ unit_conversion_table <- read.delim("data/excel_references/Unit_conversion_table
   flextable::fontsize(., size = 9, part = "all")
 ```
 
-### 3.3.7 Test durations
-Due to the heterogeneity of the gathered data, test duration is reported as either "duration" or "exposure duration", and in some cases both. The defined "exposure duration" is prioritized, but if missing, "duration" is used. There are `r nrow(RawToxData %>% distinct(Duration.Unit))` different units of test duration reported, yet only discrete time is used for the current study (seconds(s), hours (h), days (d), weeks (wk),months (mo), years (yr); Table \@ref(tab:DurTab)), while all records with other units are discarded. All durations are subsequently converted into hours.  
+### Test durations
+Due to the heterogeneity of the gathered data, test duration is reported as either "duration" or "exposure duration", and in some cases both. The defined "exposure duration" is prioritized, but if missing, "duration" is used. There are `r nrow(RawToxData %>% distinct(Duration.Unit))` different units of test duration reported, yet only discrete time is used for the current study (seconds(s), hours (h), days (d), weeks (wk), months (mo), years (yr); Table \@ref(tab:DurTab)), while all records with other units are discarded. All durations are subsequently converted into hours.  
 
 ```{r DurTab, echo = FALSE, fig.cap = "Number of records per reported experiment duration unit"}
 flextable::flextable(RawToxData %>% count(Duration.Unit, sort = T) %>% 
@@ -570,7 +571,7 @@ flextable::flextable(RawToxData %>% count(Duration.Unit, sort = T) %>%
   flextable::fontsize(., size = 9, part = "all")
 ```
 
-### 3.3.8 Assign acute or chronic test definitions.
+### Assign acute or chronic test definitions.
 Test duration and test concentration units were harmonized into hours and $mg\text{ } L^{-1}$ respectively, and records not possible to convert were discarded. Follow the general methodology of @aurisano_2019 we consider acute effects at exposure duration ≤24 h for the taxonomic groups algae (including cyanobacteria), rotifers, and microorganisms (all phyla included in the taxonomic group "Others", except for Chordata, Arthropoda, and Cnidaria), ≤96 h for phylum crustaceans and arthropods, and ≤168 h for fish, invertebrates (noncrustaceans), vertebrates, and aquatic plants other than algae according to @aurisano_2019. This implies that for the crustacean family *Daphniidae*, a data rich group of organisms throughout the data set, tests duration > 96h are defined as chronic, despite the OECD TG 211 guidelines for Daphnia magna reproduction tests are considered chronic at 21 days (504 h) [@oecd_test_2012]. Note that we chose to limit the data set to records with a test duration $\ge$ 24 hours, thus removing all "acute" tests for Algae and Rotifera. 
 
 ```{r}
@@ -606,7 +607,7 @@ AcuteChronicTable %>%
 
 ```
 
-### 3.3.9 EC10eq conversions
+### EC10eq conversions
 The last step of curating data from the OECD QSAR Toolbox query was to apply regression coefficients for endpoint conversion of effect data from acute EC50 and NOEC, and chronic EC50 and NOEC into chronic EC10eq following the suggested coefficients from [@aurisano_2019] (Table \@ref(tab:extplTable)). 
 
 ```{r extplTable, echo = FALSE}
@@ -627,7 +628,7 @@ EC10_flex_table %>%
 ```
 
 \newpage
-# 4. File connectivity schema
+# File connectivity schema {-}
 ```{r figschema, fig.cap = "A schematic diagram of the database construction focusing on the connectivity of the various code-files in the GitHub repository"}
 
 knitr::include_graphics("figures/File-storage.png")
@@ -636,5 +637,5 @@ knitr::include_graphics("figures/File-storage.png")
 
 
 \newpage
-# References
+# References {-}
 

@@ -13,6 +13,7 @@ knitr::opts_chunk$set(message = F, warning = F, echo = F)
   # install.packages("taxize")   # <- Installing the "taxize" library http://dx.doi.org/10.5281/zenodo.7097
   # install.packages("networkD3") <- For the Sankey flow chart visualization
   # install.packages("goeveg") # <- for simple coefficient of Variation calculation at summary of data
+  # install.packages("webshot") # <- Saving the sankeyNetwork .html file to a .png
   library(rmarkdown)
   library(tidyverse)
   library(webchem)
@@ -24,6 +25,7 @@ knitr::opts_chunk$set(message = F, warning = F, echo = F)
   library(ggpubr)
   library(networkD3)
   library(htmlwidgets)
+  library(webshot)
 ```
 
 # HESTIA ecotoxicological database 
@@ -561,19 +563,19 @@ nodes = data.frame("name" = c(
    paste("Aquatic Oasis, n = ",nrow(HESTIA_HC20_DB %>% filter(Database == "Aquatic OASIS")), sep = ""),
    paste("Food TOX Hazard EFSA, n = ", nrow(HESTIA_HC20_DB %>% filter(Database == "Food TOX Hazard EFSA")), sep = ""),
    paste("Validated, n = ", nrow(Q_dat), sep = ""), 
-   paste("1) n = ", nrow(HESTIA_HC20_DB) - nrow(HESTIA_HC20_DB_qualifier_filter), sep = ""), 
-   paste("2) n = ", nrow(HESTIA_HC20_DB_qualifier_filter) - nrow(HESTIA_HC20_DB_Control.Type_filter), sep = ""), 
-   paste("3) n = ", nrow(HESTIA_HC20_DB_Control.Type_filter) - nrow(HESTIA_HC20_DB_water_filter), sep = ""), 
-   paste("4) n = ", nrow(HESTIA_HC20_DB_water_filter) - nrow(HESTIA_HC20_DB_effect_crit_filter), sep = ""), 
-   paste("5) n = ", nrow(HESTIA_HC20_DB_effect_crit_filter) - nrow(HESTIA_HC20_DB_taxonomy_filter), sep = ""), 
-   paste("6) n = ", nrow(HESTIA_HC20_DB_unit_and_value_conv) - nrow(HESTIA_HC20_DB_effect_conc_filter), sep = ""), 
-   paste("7) n = ", nrow(HESTIA_HC20_DB_val.unit_filter) - nrow(HESTIA_HC20_DB_time.unit_filter), sep = ""),
-   paste("EC50-acute n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC50", AcuteChronic == "Acute")), sep = ""),
-   paste("EC50-chronic n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC50", AcuteChronic == "Chronic")), sep = ""),
-   paste("EC10-acute n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC10", AcuteChronic == "Acute")), sep = ""),
-   paste("EC10-chronic n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC10", AcuteChronic == "Chronic")), sep = ""),
-   paste("NOEC-acute n = ", nrow(Q_dat %>% filter(Endpoint_conv == "NOEC", AcuteChronic == "Acute")), sep = ""),
-   paste("NOEC-chronic n = ", nrow(Q_dat %>% filter(Endpoint_conv == "NOEC", AcuteChronic == "Chronic")), sep = ""),
+   paste("a) n = ", nrow(HESTIA_HC20_DB) - nrow(HESTIA_HC20_DB_qualifier_filter), sep = ""), 
+   paste("b) n = ", nrow(HESTIA_HC20_DB_qualifier_filter) - nrow(HESTIA_HC20_DB_Control.Type_filter), sep = ""), 
+   paste("c) n = ", nrow(HESTIA_HC20_DB_Control.Type_filter) - nrow(HESTIA_HC20_DB_water_filter), sep = ""), 
+   paste("d) n = ", nrow(HESTIA_HC20_DB_water_filter) - nrow(HESTIA_HC20_DB_effect_crit_filter), sep = ""), 
+   paste("e) n = ", nrow(HESTIA_HC20_DB_effect_crit_filter) - nrow(HESTIA_HC20_DB_taxonomy_filter), sep = ""), 
+   paste("f) n = ", nrow(HESTIA_HC20_DB_unit_and_value_conv) - nrow(HESTIA_HC20_DB_effect_conc_filter), sep = ""), 
+   paste("g) n = ", nrow(HESTIA_HC20_DB_val.unit_filter) - nrow(HESTIA_HC20_DB_time.unit_filter), sep = ""),
+   paste("EC50-acute, n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC50", AcuteChronic == "Acute")), sep = ""),
+   paste("EC50-chronic, n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC50", AcuteChronic == "Chronic")), sep = ""),
+   paste("EC10-acute, n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC10", AcuteChronic == "Acute")), sep = ""),
+   paste("EC10-chronic, n = ", nrow(Q_dat %>% filter(Endpoint_conv == "EC10", AcuteChronic == "Chronic")), sep = ""),
+   paste("NOEC-acute, n = ", nrow(Q_dat %>% filter(Endpoint_conv == "NOEC", AcuteChronic == "Acute")), sep = ""),
+   paste("NOEC-chronic, n = ", nrow(Q_dat %>% filter(Endpoint_conv == "NOEC", AcuteChronic == "Chronic")), sep = ""),
    "EC10eq-chronic"),
    "Node_Group" = c("Toolbox", rep("DBs", 5), "Validated_data", rep("Filter1", 7),  rep(c("EndpointA", "EndpointC"), 3), rep("EC10eq",1))
                )
@@ -649,9 +651,11 @@ Wrangle_plot <- htmlwidgets::onRender(Wrangle_plot, '
 
 Wrangle_plot
 
-saveNetwork(Wrangle_plot, "Wrangle_plot.html", selfcontained = TRUE)
+saveNetwork(Wrangle_plot, "../figures/Wrangle_plot.html", selfcontained = TRUE)
 saveWidget(Wrangle_plot, file = "Wrangle_plot_widget.html", selfcontained = TRUE, title = "Overview of data curation steps")
+?webshot
 
+webshot::webshot(url= "../figures/Wrangle_plot.html", file = "../figures/Wrangle_plot.pdf", vwidth = 992, vheight = 744)
 ```
 
 ```{r}

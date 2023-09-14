@@ -186,7 +186,9 @@ nls_across_all <- function(dataset, CAS = CAS.Number, Tax = Taxonomy.Group, EC =
         output_df$MC_sig[i] <- list(rnorm({{MC_n}}, mean = summary(output_df$nls_results[[i]])$parameters[2,1], sd = summary(output_df$nls_results[[i]])$parameters[2,2]))
         # these two vectors is used to construt HC20 using the qnorm()
         output_df$log_HCx_vec[i] <- list(qnorm(({{HCx}}/100), mean = output_df$MC_mu[[i]], sd = output_df$MC_sig[[i]]))
+        # Mean HC_x based on the MC simulation
         output_df$mean_HCx[i] <- mean(output_df$log_HCx_vec[[i]], na.rm = T)
+        # Standard deviation of HC_x based on the MC simulation
         output_df$sd_HCx[i] <- sd(output_df$log_HCx_vec[[i]], na.rm = T)
         output_df$GStDev[i] <- geoSD(10^output_df$log_HCx_vec[[i]], na.rm = T)
         output_df$Q2.5[i] <- quantile(output_df$log_HCx_vec[[i]], 0.025, na.rm = T)
