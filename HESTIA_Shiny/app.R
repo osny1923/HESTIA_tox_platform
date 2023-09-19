@@ -25,7 +25,7 @@ ui <- fluidPage(
              sidebarLayout(
                sidebarPanel(
                  width = 2,
-                 selectInput("casNumberInput", "Select CAS Number Column:", choices = NULL, selectize = FALSE),
+                 selectizeInput("casNumberInput", "Select CAS Number Column:", choices = NULL),
                  br(),
                  sliderInput("hcInput", "Select Response Level:", min = 5, max = 95, value = 20, step = 5, ticks = TRUE),
                  br(),
@@ -38,7 +38,10 @@ ui <- fluidPage(
                mainPanel(
                  width = 10,
                  br(), 
-                 "Data summary of the nonlinear least squares model.",
+                 tags$h1("Data summary of the nonlinear least squares model."),
+                 br(),
+                 uiOutput("conditionalText"), 
+                 br(),
                  dataTableOutput("outputNLSData", width = "auto"),
                  fluidRow(
                    column(width = 4,
@@ -52,6 +55,8 @@ ui <- fluidPage(
                  ),
                  br(),
                  "The raw data from which the model is based on.",
+                 br(),
+                 "Please note that single-species data are not shown",
                  br(),
                  # Download dataset Button
                  "Download active dataset",
@@ -163,7 +168,7 @@ server <- function(input, output, session) {
   output$resultsTable <- DT::renderDataTable({
     DT::datatable(filteredData(), 
                   options = list(
-                    pageLength = 10,
+                    pageLength = 100,
                     columnDefs = list(
                       list(
                         targets = c(8,10:11, 17:21),
@@ -219,7 +224,7 @@ server <- function(input, output, session) {
     }
     
     if(isTRUE(checkOnlyValid)){
-     filteredData_uncert <- data_uncert() %>% filter(status == "Convergence")
+     filteredData_uncert <- data_uncert() %>% filter(status %in% c("Convergence", "Convergence; Data insufficient"))
     } else{
       filteredData_uncert <- data_uncert()
     }
@@ -230,27 +235,27 @@ server <- function(input, output, session) {
   output$resultsTable_uncert <- renderDataTable({
     datatable(filteredData_uncert(), 
                   options = list(
-                    pageLength = 25,
+                    pageLength = 100,
                     autoWidth = TRUE,
                     formatRound = 4,
                     dom = "ltirp",
                     columnDefs = list(
                       list(
-                      targets = c(2:9, 12, 15),
+                      targets = c(2:13, 14, 17, 19),
                         render = JS(
                           "function(data, type, row, meta) {",
                           "  if (type === 'display' || type === 'filter') {",
                           "    if (data === null || data === '') {",
                           "      return '';",
                           "    } else {",
-                          "      if ((meta.col >= 2 && meta.col <= 9) || meta.col === 15) {",
+                          "      if ((meta.col >= 2 && meta.col <= 13) || meta.col === 17 || meta.col === 19) {",
                           "        if (parseFloat(data) === 0) {",  # Check if value is zero
                           "          return '0';",  # Print as '0'
                           "        } else {",
                           "          return parseFloat(data).toExponential(2);",  # Convert to scientific notation with 2 decimals
                           "        }",
                           "      } else {",
-                          "        if (meta.col === 12) {",
+                          "        if (meta.col === 14) {",
                           "          return parseFloat(data).toFixed(0);",  # Default behavior for other columns (3 decimals)
                           "        }",
                           "      }",
@@ -271,10 +276,10 @@ server <- function(input, output, session) {
   
 ### SSD plots ### -------------------------------------------------
   # Read the NLS dataset
-  valid_SSD_dataset <- read.csv("data/nls_output_df.csv") %>% filter(status %in% c("Convergence", "Data insufficient")) %>% pull(CAS.Number)
+  valid_SSD_dataset <- read.csv("data/nls_output_df.csv") %>% filter(status %in% c("Convergence", "Convergence; Data insufficient")) %>% pull(CAS.Number)
 
   SSDdata <- reactive({
-    read.csv("data/FINAL_HESTIA.csv") %>% filter(CAS.Number %in% valid_SSD_dataset)
+    read.csv("data/FINAL_HESTIA.csv") %>% filter(CAS.Number %in% valid_SSD_dataset) %>% select(-c(Genus, EC10eq_Chronic, EC10eq_Acute))
     })
   
   # # Update the CAS Number column choices
@@ -288,9 +293,10 @@ server <- function(input, output, session) {
     req(SSDdata(), input$casNumberInput, input$hcInput, input$MC_n)
     nls_across_shiny(SSDdata(), CAS = input$casNumberInput, HCx = input$hcInput, MC_n = input$MC_n)
   })
-  
+
   # Update the CAS Number choices based on the uploaded dataset
-  observeEvent(SSDdata(), {
+  observe({
+    req(SSDdata())
     updateSelectInput(session, "casNumberInput", choices = SSDdata() %>% distinct(CAS.Number) %>% pull(CAS.Number))
   })
   
@@ -298,7 +304,7 @@ server <- function(input, output, session) {
   output$outputNLSData <- renderDataTable({
     # index the datatable object
     dat_list <- outputData()[[1]]
-    outputDf <- data.frame(do.call(cbind, dat_list[1:16]), row.names = FALSE) %>%
+    outputDf <- data.frame(do.call(cbind, dat_list[1:17]), row.names = FALSE) %>%
         mutate(across(c(2:16), ~ as.numeric(.x))) %>% 
         `rownames<-`( NULL )
     return(outputDf)
@@ -308,9 +314,22 @@ server <- function(input, output, session) {
     )
   )
   
+  # Conditionally render text above the table based on the "status" column
+  output$conditionalText <- renderUI({
+    if (any(grepl("Data insufficient", outputData()$status))) {
+      tags$h2("Data insufficient; SSD based on <5 species across <3 taxonomic groups.", style = "color: red;")
+    } else {
+      ""
+    }
+  })
+  
   # Render the RAW data table used for SSDs
   output$outputRAWData <- renderDataTable({
-    outputRAWDf <- SSDdata() %>% filter(CAS.Number == input$casNumberInput)
+    outputRAWDf <- SSDdata() %>% 
+      filter(CAS.Number == input$casNumberInput) %>% 
+      group_by(Species) %>%
+      filter(n() != 1) %>%
+      ungroup()
     return(outputRAWDf)
   },
   options = list(
@@ -319,7 +338,7 @@ server <- function(input, output, session) {
     pageLength = 3000,
     columnDefs = list(
       list(
-        targets = c(8,13:15),
+        targets = c(7,12),
         render = JS(
           "function(data, type, row, meta) {",
           "if (type === 'display' || type === 'filter') {",
@@ -334,7 +353,7 @@ server <- function(input, output, session) {
           "}")
       ),
       list(
-        targets = 17,
+        targets = 14,
         render = JS(
           "function(data, type, row, meta) {",
           "return type === 'display' && data.length > 10 ?",

@@ -31,16 +31,17 @@ knitr::opts_chunk$set(message = F, warning = F, echo = F)
 # HESTIA ecotoxicological database 
 \vspace{40mm}
 
-Oskar Nyberg$^{1,\dagger}$, Reinout Heijungs$^{2}$, Patrik Henriksson$^{3,4,5}$
+Oskar Nyberg$^{1,\dagger}$, Reinout Heijungs$^{2,3}$, Patrik Henriksson$^{4,5,6}$
 
 \vspace{20mm}
-${1}$ Department of Ecology, Environment and Plant Sciences,  Svante Arrhenius väg 20 A, Stockholm University
-${2}$ Leiden University
-${3}$ Stockholm Resilience Center, XXX, Stockholm University
-${4}$ WorldFish Center
-${5}$ Beijer Institute
+${^1}$ Department of Ecology, Environment and Plant Sciences, Stockholm University, Svante Arrhenius väg 20A, 104 05, Stockholm, Sweden  
+${^2}$ Department of Operations Analytics, Vrije Universiteit, De Boelelaan 1105, 1081 HV, Amsterdam, The Netherlands  
+${^3}$ Institute of Environmental Sciences, Leiden University, Van Steenisgebouw Einsteinweg 2, 2333 CC, Leiden, The Netherlands  
+${^4}$ Stockholm Resilience Centre, Albanovägen 28, 106 91, Stockholm, Sweden  
+${^5}$ WorldFish, Jalan Batu Maung, Batu Maung, 11960 Bayan Lepas, Pulau Pinang, Malaysia  
+${^6}$ Beijer Institute of Ecological Economics, The Royal Swedish Academy of Science, Lilla Frescativägen 4 A, Stockholm, Sweden  
 
-${\dagger}$ Corresponding author:[oskar.nyberg@su.se](mailto:oskar.nyberg@su.se)
+${\dagger}$ Corresponding author: [oskar.nyberg@su.se](mailto:oskar.nyberg@su.se); [nyberg.oskar@gmail.com](mailto:nyberg.oskar@gmail.com); [(+46) 735-351260](tel:+46735351260)
 
 
 \newpage
@@ -194,6 +195,17 @@ HESTIA_HC20_DB_qualifier_filter <- HESTIA_HC20_DB_qualifier_filter %>%
 Some data have annotations where Control.Type is annotated as "inconclusive" or "unsatisfactory".
 Additional filtering operations dependent on outlier inspection an identification of "odd" data
 ```{r}
+# Preparing removal of algae and "others" in paper where these groups have attributed NOEC values as posterior attribute.
+{
+taxonomy <- read.csv("../data/Taxonomy/Species_taxonomy.csv") 
+paper_taxa <- HESTIA_HC20_DB_qualifier_filter %>% 
+  filter(grepl("A Freshwater Mesocosm Study into the Effects of the Neonicotinoid Insecticide Thiamethoxam at Multiple Trophic Levels", Title))
+Algae_removal_df <- taxonomy %>% 
+  filter(Test.organisms..species. %in% paper_taxa$Test.organisms..species.) %>% 
+  filter(Taxonomy.Group %in% c("Algae", "Others")) %>% 
+  pull(Test.organisms..species.) 
+}
+
 HESTIA_HC20_DB_Control.Type_filter <- HESTIA_HC20_DB_qualifier_filter %>% 
   filter(
     # Removing data based on insufficient/unsatisfactory controls
@@ -235,8 +247,11 @@ HESTIA_HC20_DB_Control.Type_filter <- HESTIA_HC20_DB_qualifier_filter %>%
     # Duplicate data exists from the same author, also recorded in "Little, L.W., J.C. Lamb III, M.A. Chillingworth, and W.B. Durkin, Acute Toxicity of Selected Commercial Dyes to the Fathead Minnow and Evaluation of Biological Treatment for Reduction of Toxicity"
     !grepl("Acute Toxicity of 46 Selected Dyes to the Fathead Minnow, Pimephales promelas", Title),
     # The Japan MoE Ecotoxicological tests on chemical Hexabromobenzene, CASRN=87-82-1, is reported with data 6 orders of magnitude from all other data, and the specific test report is not to traceable.
-    Database != "Aquatic Japan MoE" | CAS.Number != "87-82-1"
+    Database != "Aquatic Japan MoE" | CAS.Number != "87-82-1",
+    # Removal of algae and "others" in paper where these groups have attributed NOEC values as posterior attribute.
+    !grepl("A Freshwater Mesocosm Study into the Effects of the Neonicotinoid Insecticide Thiamethoxam at Multiple Trophic Levels", Title) | !Test.organisms..species. %in% Algae_removal_df
   )
+
 
 ```
 
@@ -653,7 +668,7 @@ Wrangle_plot
 
 saveNetwork(Wrangle_plot, "../figures/Wrangle_plot.html", selfcontained = TRUE)
 saveWidget(Wrangle_plot, file = "Wrangle_plot_widget.html", selfcontained = TRUE, title = "Overview of data curation steps")
-?webshot
+
 
 webshot::webshot(url= "../figures/Wrangle_plot.html", file = "../figures/Wrangle_plot.pdf", vwidth = 992, vheight = 744)
 ```
@@ -670,8 +685,7 @@ common_name_elements <- c(
 HESTIA_BASE_dat <- read.csv("../results/HESTIA_EC10eq_DB.csv") %>% 
   rename(Medium = Media.type) %>% 
   unite(Source, c("Title", "Author", "Year", "Reference.source", "URL", "DOI"), sep = ";", na.rm = TRUE) %>% 
-  select(common_name_elements)# %>% 
-  #mutate(CAS.Number = as.factor(CAS.Number))
+  select(common_name_elements)
 
 write.csv(HESTIA_BASE_dat, "../results/FINAL_HESTIA.csv", row.names = F)
 write.csv(HESTIA_BASE_dat, "../HESTIA_Shiny/data/FINAL_HESTIA.csv", row.names = F)
@@ -684,7 +698,7 @@ This operation requires Physchem/subst.use-group data to be joined with the toxi
 ```{r HC50EC50}
 source("../code/HC50_calculation_function.R")
 
-# Attaching the Physchem data to HESTIA dataset and outputting a df with HC50 data
+# Attaching Physchem data to HESTIA dataset and outputting a df with HC50 data
 HESTIA_HC50_calc <- HC50_calc_function(HESTIA_BASE_dat %>% left_join(x = ., y = NEW_PHYSCHEM, by = "CAS.Number"))
 ```
 
@@ -732,6 +746,7 @@ write.csv(nls_output_df, "../HESTIA_Shiny/data/nls_output_df.csv", row.names = F
 ```
 
 ### Inspecting the nls outputs that were not able to start! 
+# Running the operation with a subset for a chemical in the negatives, but changing the concentration from mg L-1 to ng L-1
 ```{r inspectingNLS, include=FALSE, eval=FALSE}
 bad_nls_cas <- nls_output_df %>% filter(grepl("Fail", status),
                                         n_sigma >= 5 & n_taxa_sigma >= 3) %>% pull(CAS.Number)
@@ -753,30 +768,6 @@ nls_output_df %>%
   filter(CAS.Number %in% bad_nls_cas)
 ```
 
-# Running the operation with a subset for a chemical in the negatives, but changing the concentration from mg L-1 to ng L-1
-
-```{r, eval=FALSE}
-# load the nls function
- source("../code/least_squares_fit_model_code.R")
-system.time(nls_output_subset <- nls_across_all(dataset = HESTIA_BASE_dat %>% filter(CAS.Number %in% dataRichNoConverge), Plot_output = "NO", MC_n = 1e+05, Plot_destination = "../figures/SSD_plots"))
-
-#Transform into a dataframe - removing the list of lists containing full nls-output
-nls_output_df_subset <- as.data.frame(do.call(cbind, nls_output_subset[1:20])) %>%
- mutate(across(c(2:19), ~ as.numeric(.x)),
-        CAS.Number = as.factor(CAS.Number),
-        status = as.character(status))
-
-failConverge <- nls_output_df_subset %>% 
-  filter(GStDev == 0) %>% pull(CAS.Number)
-
-data_from_bad_nls_starts %>% 
-  filter(CAS.Number %in% failConverge) %>% 
-  mutate(sp_mean = log10((10^sp_mean)*1e6)
-         )
-
-#HESTIA_BASE_dat %>% filter(CAS.Number == "2782-70-9" & Species == "Lepomis macrochirus")
-```
-
 
 ## Merging Physchem & Tox data
 ```{r FinalDataset}
@@ -790,13 +781,15 @@ HESTIA_cfs <- left_join(
     MW.g.mol, pKaChemClass, pKa.gain, pKa.loss, Kow_L.L, Koc_L.kg,
     kH25C_Pa.m3.mol, Vapor.Pressure_Pa, Sol_mg.L,
     KdegA, KdegW, KdegSd, KdegSl, HC20EC10eq, BAF_L.Kg, 
-    mean_EC10eq, Sd_EC10eq, HC20,
-    Molecular.formula, Predefined.substance.type, Substance_type, 
-    Group, Subgroup, Heavy.Metals, Halogenated, definition, 
-    n_data_recs, n_species, sum_extrapolations, n_Taxonomy.Group 
+    # mean_EC10eq, Sd_EC10eq, HC20,
+    # Molecular.formula, Predefined.substance.type, 
+    Substance_type, Group 
+    #Subgroup, Heavy.Metals, Halogenated, definition, 
+    # n_data_recs, n_species, sum_extrapolations, n_Taxonomy.Group 
     )
   ) %>% 
-  mutate(across(contains("Kdeg"), ~ formatC(., format = "e")))
+  mutate(across(contains("Kdeg"), ~ formatC(., format = "e")),
+         across(contains("Kdeg"), ~ na_if(., "NA")))
 
 write.csv(HESTIA_cfs, "../HESTIA_Shiny/data/HESTIA_cfs.csv", row.names = F)
 
@@ -879,11 +872,11 @@ openxlsx::addWorksheet(Supp, sheetName = "NLS_RESULTS")
 openxlsx::addWorksheet(Supp, sheetName = "FULL_DATABASE")
 
 # HESTIA chemical inventory "PesticideAI.csv"
-openxlsx::writeData(Supp, sheet = "HESTIA_INVENTORY", x = read.csv("../data/excel_references/pesticideAI.csv"), startCol = 1, startRow = 1, colNames = T, rowNames = F)
-# CAS SMILES matching
-openxlsx::writeData(Supp, sheet = "CAS_SMILES_MATCHING", x = CAS_SMILES_list, startCol = 1, startRow = 1, colNames = T, rowNames = F)
+openxlsx::writeData(Supp, sheet = "HESTIA_INVENTORY", x = read.csv("../data/excel_references/pesticideAI.csv")[, c(1,3:9)], startCol = 1, startRow = 1, colNames = T, rowNames = F)
 # PHYSCHEM info
 openxlsx::writeData(Supp, sheet = "PHYSCHEM", x = Physchem_HESTIA, startCol = 1, startRow = 1, colNames = T, rowNames = F)
+# CAS SMILES matching
+openxlsx::writeData(Supp, sheet = "CAS_SMILES_MATCHING", x = CAS_SMILES_list, startCol = 1, startRow = 1, colNames = T, rowNames = F)
 # Taxonomic information
 openxlsx::writeData(Supp, sheet = "TAXONOMIC_INFORMATION", x = read.csv("../data/Taxonomy/Species_taxonomy.csv"), startCol = 1, startRow = 1, colNames = T, rowNames = F)
 # Chemical properties
@@ -893,10 +886,11 @@ openxlsx::writeData(Supp, sheet = "USEtox_FORMAT", x = USEtox_input, startCol = 
 # NLS_dataset
 openxlsx::writeData(Supp, sheet = "NLS_RESULTS", x = nls_output_df, startCol = 1, startRow = 1, colNames = T, rowNames = F)
 # Final Database
-openxlsx::writeData(Supp, sheet = "FULL_DATABASE", x = HESTIA_BASE_dat, startCol = 1, startRow = 1, colNames = T, rowNames = F)
+openxlsx::writeData(Supp, sheet = "FULL_DATABASE", x = HESTIA_BASE_dat %>% select(-c(Genus, EC10eq_Chronic, EC10eq_Acute)), startCol = 1, startRow = 1, colNames = T, rowNames = F)
 
 saveWorkbook(Supp, file = "../results/supplementary_data.xlsx", overwrite = TRUE)
 gc()
 
 ```
+
 

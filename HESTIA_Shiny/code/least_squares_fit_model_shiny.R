@@ -69,7 +69,7 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
 
   
       ### Using the input dataset to get counts, means and Sd.
-      d.frame <- dataset %>%
+      d.frame_1 <- dataset %>%
          filter(CAS.Number == {{CAS}}) %>% 
         # Perform first averaging of species-specific tox data to get species mean and standard error
         mutate(Li = log10(EC10eq)) %>%
@@ -80,18 +80,25 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
           sp_mean = mean(Li, na.rm = TRUE),
           sd_Li = sd(Li, na.rm = TRUE),
         ) %>%
-        ungroup() %>%
+        ungroup() 
+      # Special dataset for non-weighted data
+      d.frame_2 <- d.frame_1 %>%
         # Denoting the order of appearance in cumulative form:
-        mutate(y_rank = (rank(sp_mean, na.last = NA) - 0.5)/length(unique(Species)),
-               # Some occurrences where sd == 0 cause error in the nls model. making these into NA's
-               sd_Li = case_when(sd_Li == 0 ~ 1,
-                                 is.na(sd_Li) ~ 1, 
-                                 TRUE ~ sd_Li)) %>%
+        mutate(y_rank = (rank(sp_mean, na.last = NA, ties.method = "random") - 0.5)/length(unique(Species))) %>% 
+        arrange(y_rank) %>%
+        mutate(Taxonomy.Group = as.factor(Taxonomy.Group))
+      
+      # Duplicating d.frame_1 to allow non-weighted method to pull from all available data, as in HC20_calc.
+      d.frame <- d.frame_1 %>% 
+               #Need for removing cases where sigma (Sd_Li) is missing
+                filter(!is.na(sd_Li), 
+                        sd_Li != 0) %>% 
+        mutate(y_rank = (rank(sp_mean, na.last = NA, ties.method = "random") - 0.5)/length(unique(Species))) %>% 
         arrange(y_rank) %>%
         mutate(Taxonomy.Group = as.factor(Taxonomy.Group))
       
       z_HCx <- sqrt(2)*erfinv(2*({{HCx}}/100)-1)
-      output_list$non_W_HCxEC10 <- mean(d.frame$sp_mean, na.rm = T) + (z_HCx * sd(d.frame$sp_mean, na.rm = T))
+      output_list$non_W_HCxEC10 <- mean(d.frame_2$sp_mean, na.rm = T) + (z_HCx * sd(d.frame_2$sp_mean, na.rm = T))
       
       
       # adding a tryCatch to identify status occurring due to few records, resulting in non-convergence.
@@ -102,18 +109,31 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
       nls_out <- nls(y_rank ~ cum_norm_dist_function(sp_mean, mu, sig), 
                      control = nlc, 
                      data=d.frame, 
-                     weights = 1/(sd_Li),
+                     weights = 1/(sd_Li^2),
                      start = cnormSS(sp_mean ~ sd_Li, 
                                      data = d.frame)
                      )
-      "Convergence" # <- returning an OK in the status-column
+      if (nrow(d.frame)<5 | nrow(d.frame %>% distinct(Taxonomy.Group))<3) {
+        "Convergence; Data insufficient"
+      } else {
+        "Convergence"
+      }
       },
       error = function(e) {
-        "singular gradient matrix at initial parameter estimates"
+        if (nrow(d.frame)<5 | nrow(d.frame %>% distinct(Taxonomy.Group))<3) {
+          "Fail.Init; data insufficient"
+        } else {
+          "Fail.Init; data present"
+        }
       },
       warning = function(w){
-        "warning: step factor reduced below 'minFactor'"
-      })
+        if (nrow(d.frame) < 5 | nrow(d.frame %>% distinct(Taxonomy.Group)) <3) {
+          "Fail.Conv; data insufficient"
+        } else {
+          "Fail.Conv; data present"
+        }
+      }
+      )
       
       # Generate predictions from the nls model
       output_list$responseSequence <- data.frame(sp_mean = seq(min(d.frame$sp_mean), max(d.frame$sp_mean), length.out = 10000))
@@ -122,16 +142,15 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
       # Create a data frame with predictions
       output_list$prediction_data <- data.frame(sp_mean = output_list$responseSequence[[1]], predicted_values = predicted_values)
       
-      
-      if (output_list$status %in% c("warning: step factor reduced below 'minFactor'",
-                                     "singular gradient matrix at initial parameter estimates")) {
+      # If the model fails, print number of records and terminate
+      if (grepl("Fail", output_list$status)) {
         output_list$CAS.Number <- {{CAS}}
         output_list$n_sp <- as.numeric(error_df[i,"n_sp"])
         output_list$n_tax.grp <- as.numeric(error_df[i,"n_tax.grp"])
         output_list$n_recs <- as.numeric(error_df[i,"n_recs"])
         output_list$nls_results <- as.numeric(NA)
         
-      } else { #Run Monte Carlo analysis on the distribution of HC20EC10eq data to assess uncertainty!
+      } else { # Run Monte Carlo analysis on the distribution of HC20EC10eq data to assess uncertainty!
         output_list$nls_results <- list(nls_out)
         # assign CAS.Number to output df
         output_list$CAS.Number <- {{CAS}}
@@ -172,22 +191,27 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
   if (class(output_list$nls_results[[1]]) == "nls") {
       d.frame <- cbind(d.frame, predict2_nls(nls_out, interval = "conf"))
       # Conditionally plot the confidence intervals at HC20 working point, based on if the confint() gives an output or throws an error due to "Conf.int infinity produced" (Starting values are out of bounds)
-      c_int_on <- output_list$status == "Convergence" && !is.na(output_list$Q2.5) && !is.na(output_list$Q97.5)
+      c_int_on <- !is.na(output_list$Q2.5) && !is.na(output_list$Q97.5)
       if(c_int_on == FALSE) output_list$status <- "Conf.int contains 'NA'"
+      if(nrow(d.frame)<5 | nrow(d.frame %>% distinct(Taxonomy.Group))<3) output_list$status <- "Convergence; Data insufficient"
       
      ## Catching statement if ggplot did output ssd curves
-     output_list$status <-  tryCatch({
+     # output_list$status <-  tryCatch({
+      
+      # Adding a conditional hjust-value for geom_textprinting text on either side of the geom_point.
+      d.frame <- d.frame %>%
+        mutate(hjust_value = ifelse(y_rank >= 0.5, 1.5, -0.5))
       
      # Generate a plot object that can be put in a list at the end of the function.
      plt <- ggplot(d.frame, aes(x = sp_mean, y = y_rank)) +
         geom_point(aes(fill = Taxonomy.Group), shape = 21, size = 3, alpha = 0.7) +
-       
+        geom_text(aes(label = Species, hjust = hjust_value, fontface=3)) +
      # Conditionally plotting percentiles if there are values available
           {if(c_int_on)geom_point(aes(x = output_list$Q2.5,
-                         y = ({{HCx}}/100), color = "low_CI", shape = "low_CI"),
+                         y = ({{HCx}}/100), color = "2.5 percentile", shape = "2.5 percentile"),
                      inherit.aes = F)} +
           {if(c_int_on)geom_point(aes(x = output_list$Q97.5,
-                         y = ({{HCx}}/100), color = "high_CI", shape = "high_CI"),
+                         y = ({{HCx}}/100), color = "97.5 percentile", shape = "97.5 percentile"),
                      inherit.aes = F)} +
            geom_smooth(
              data = output_list$prediction_data, 
@@ -195,28 +219,46 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
              color = "red", 
              method = "auto", 
              se = FALSE) +
-       # plotting the nls function usng the same arguments as the nls model above. (DEPRECATED, This runs the nonweighted nls model)
-          geom_smooth(method = "nls",
-                      formula = y ~ cum_norm_dist_function(x, mu, sig),
-                      method.args = list(start = cnormSS(sp_mean ~ sd_Li, data = d.frame)),
-                      se =  FALSE) + # this is important
-          #geom_ribbon(aes(ymin=Q2.5, ymax=Q97.5), alpha=0.2, na.rm = TRUE) +
+       # plotting the nls function using the same arguments as the nls model above. (DEPRECATED, This plots the curve of the nonweighted nls model)
+          # geom_smooth(method = "nls",
+          #             formula = y ~ cum_norm_dist_function(x, mu, sig),
+          #             method.args = list(start = cnormSS(sp_mean ~ sd_Li, data = d.frame)),
+          #             se =  FALSE) + # this is important
+           #geom_ribbon(aes(ymin=Q2.5, ymax=Q97.5), alpha=0.2, na.rm = TRUE) +
        
-          geom_point(aes(x = output_list$log_HCxEC10, y = ({{HCx}}/100), color = "HC20EC10eq", shape = "HC20EC10eq"), inherit.aes = F) +
+          geom_point(aes(x = output_list$log_HCxEC10, y = ({{HCx}}/100), color = "logHC20EC10eq", shape = "logHC20EC10eq"), inherit.aes = F) +
           geom_point(aes(x = output_list$MC_logHC20ec10eq, y = ({{HCx}}/100), color = "MC_logHC20ec10eq", shape = "MC_logHC20ec10eq"), inherit.aes = F) +
           geom_point(aes(x = output_list$non_W_HCxEC10, y = ({{HCx}}/100), color = "non_W_HCxEC10", shape = "non_W_HCxEC10"), inherit.aes = F) +
           scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), labels = c("0", "20", "40", "60", "80", "100")) +
-          scale_color_manual(name = element_blank(),
-                             aesthetics = c("color"),
-                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile","MC_logHC20ec10eq", "non_W_HCxEC10"),
-                             values = c("HC20EC10eq"="red", "low_CI"="green", "high_CI" = "blue", "MC_logHC20ec10eq" = "purple", "non_W_HCxEC10" = "black")
+          scale_color_manual(
+           name = element_blank(),
+           aesthetics = c("color"),
+           labels = if(c_int_on) {
+             c("2.5 percentile", "97.5 percentile", "logHC20EC10eq", "MC_logHC20ec10eq", "non_W_HCxEC10") 
+             } else {
+               c("logHC20EC10eq", "MC_logHC20ec10eq", "non_W_HCxEC10")},
+           values = if(c_int_on) {
+             c("2.5 percentile" = "green", "97.5 percentile" = "blue", "logHC20EC10eq" = "red", "MC_logHC20ec10eq" = "purple", "non_W_HCxEC10" = "black") 
+             } else {
+               c("logHC20EC10eq" = "red", "MC_logHC20ec10eq" = "purple", "non_W_HCxEC10" = "black")}
           ) +
-          scale_shape_manual(name = element_blank(),
-                             labels = c("logHC20EC10eq", "97.5 percentile", "2.5 percentile", "MC_logHC20ec10eq", "non_W_HCxEC10"),
-                             values = c(15, 8, 17, 19, 13)
+          scale_shape_manual(
+           name = element_blank(),
+           labels = if(c_int_on) {
+             c("2.5 percentile", "97.5 percentile", "logHC20EC10eq", "MC_logHC20ec10eq", "non_W_HCxEC10") 
+           } else {
+             c("logHC20EC10eq", "MC_logHC20ec10eq", "non_W_HCxEC10")},
+           values = if(c_int_on) {
+             c("2.5 percentile" = 25, "97.5 percentile" = 24, "logHC20EC10eq" = 15, "MC_logHC20ec10eq" = 19, "non_W_HCxEC10" = 13) 
+             } else {
+               c("logHC20EC10eq" = 15, "MC_logHC20ec10eq" = 19, "non_W_HCxEC10" = 13)}
           ) +
           labs(title = paste("CAS", output_list$CAS.Number, sep = " "),
-               subtitle = paste("log10HC", {{HCx}}, " = ", round(output_list$log_HCxEC10, digits = 4),"| BLUE = Unweighted, RED = Weighted", sep = ""),
+               subtitle = if(c_int_on) {
+                  paste("log10HC", {{HCx}}, " = ", round(output_list$log_HCxEC10, digits = 4), sep = "")
+               } else {
+                 paste("log10HC", {{HCx}}, " = ", round(output_list$log_HCxEC10, digits = 4), ", DATA INSUFFICIENT. No CI available", sep = "")
+                 },
                x = "mean(log) EC10eq (mg L-1)",
                y = "Response level (%)") +
           theme_linedraw() +
@@ -232,16 +274,17 @@ nls_across_shiny <- function(dataset, CAS, HCx = 20, MC_n = 10000) {
             legend.text = element_text(size=8)
           )
      
-        "OK"
-      }, error = function(Err) {
-        "Error: Blank Plot. step factor reduced below 'minFactor'"
-      }, warning = function(Warn){
-        "Warning: too many missing values"
-      } )
+        #"OK"
+      # }, error = function(Err) {
+      #   "Error: Blank Plot. step factor reduced below 'minFactor'"
+      # }, warning = function(Warn){
+      #   "Warning: too many missing values"
+      # } )
     
-    } else {
-      warning(print(paste("No nls available")))
-    }
+    } 
+    #     else {
+    #   warning(print(paste("No nls available")))
+    # }
   }
 #}
   
